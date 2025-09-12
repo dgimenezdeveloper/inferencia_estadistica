@@ -1,0 +1,54 @@
+00:06:11	joaquin toledo:	hola buenas profe
+00:06:39	Uriel Espindola:	No, ninguna
+00:06:50	Thiago Montenegro:	por mi parte no profe
+00:07:21	Barreras Mauricio:	A mi me gustaria un repaso rapido porque no me acuerdo mucho si no hay problema
+00:10:40	Martin bahl:	Profesor yo quería pedir si los codigos en el campus lo puede compartir a través de un Google colaboratory o dentro de un ZIP o RAR
+00:13:14	Martin bahl:	Por que a la hora de abrirlo Enel campus no me permite
+00:14:06	Brian Fernandez:	Se podia descargar si dabas click derecho guardar como y lo abris en jupiter
+00:14:16	Martin bahl:	capas por el error que comenta el compañero mi error
+00:20:56	joaquin toledo:	uh profe, yo abri el algoritmo desde el campus, copie todo y pegue en un block de notas lo guarde, y lo subi a Google colab y ahí pude verlo. Tampoco sabia como hacerlo por eso, me conviene hacerlo como decis vos?
+00:28:57	Marcial Alejandro Insaurralde:	si
+00:30:26	Martin bahl:	yo siempre lo busque
+00:31:37	Nahuel Castillo:	Hola, profe. Perdón por llegar tarde.
+00:39:45	Nahuel Castillo:	Sí, corramos algo de Bayes.
+00:40:47	Barreras Mauricio:	Profe yo no pude ver mucho pq anudve sin pc, si podemos ejecutarlo denuevo sería genial
+00:41:14	Nahuel Castillo:	Reacted to "Profe yo no pude ver..." with 👍
+00:45:25	Sebastian Sanchez Bentolila:	La semilla es?
+00:45:35	Sebastian Sanchez Bentolila:	Del random?
+00:50:51	Marcial Alejandro Insaurralde:	si profe
+00:50:54	Junior Flores:	Sisi
+00:51:35	Franco Caivano:	perfecto profe
+00:51:40	Uriel Espindola:	sisi, Muchas gracias profe
+00:51:47	Lucas Fradin:	Si, profe
+00:53:08	Nahuel Castillo:	Sí, la distribución Gaussiana.
+00:53:13	Franco Caivano:	no profe
+00:55:44	Nahuel Castillo:	Profe, ¿Y cómo puedo saber si las variables aleatorias denpenden unas de otras, en un vector aleatorio?
+00:56:11	Nahuel Castillo:	Sí, lo escuché.
+00:57:37	Nahuel Castillo:	Sí, lo recuerdo ^^
+01:09:21	Nahuel Castillo:	Sí, me estoy acordando.
+01:11:22	Nahuel Castillo:	Profe, ¿Soy yo o no veo nada?
+01:11:27	Nahuel Castillo:	Se ve todo blanco.
+01:12:38	Roberto:	yo si lo escucho
+01:19:16	Nahuel Castillo:	¿Ahí es donde "X" es un vector aleatorio?
+01:19:35	Nahuel Castillo:	Ah, bien ^^
+01:25:34	joaquin toledo:	el cuadratico cuando es? cuando es diferente varianza?
+01:25:51	Nahuel Castillo:	Exacto, cuando las varianzas son distintas.
+01:25:59	joaquin toledo:	gracias
+01:26:03	Nahuel Castillo:	De nada ^^
+01:39:56	Fabián Martinez:	Yo tengo eso justamente, pero no es tan grave mi caso
+01:51:41	Colosimo Lucas:	Profe, me tengo que retirar, después veo la clase en el campus para ver que me perdí. Saludos
+01:53:51	Nahuel Castillo:	Machine learning?
+01:59:32	Canteros Thiago:	Disculpe profe me retiro de la clase, despues veo la grabación
+02:02:24	Marcos Herrera:	Perfecto 👍🏻
+02:02:50	joaquin toledo:	hay un grupo de wpp?
+02:03:11	Lucas Fradin:	Si, los del centro
+02:03:11	Marcos Herrera:	Si, hay grupo de wp
+02:03:28	Franco Caivano:	esta en tema 3
+02:03:38	Franco Caivano:	el link de la clase pasada
+02:04:20	Brian Fernandez:	Perfecto  👍
+02:04:30	Lucas Fradin:	Genial, profe
+02:07:27	Nahuel Castillo:	Yo no lo veo poco productivo, yo lo veo necesario. Si quiero predecir algo, debo probar con todos los métodos. Bueno, eso pienso.
+02:08:20	Marcos Herrera:	Jajja
+02:08:38	Lucas Fradin:	No, profe. Mucha practica toca, mas que nada
+02:09:08	Nahuel Castillo:	¿Puedo estar sin grupo?
+02:12:15	Nahuel Castillo:	¡Grande, profe! Coincido =D

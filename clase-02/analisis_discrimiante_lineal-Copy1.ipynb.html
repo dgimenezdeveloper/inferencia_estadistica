@@ -1,0 +1,496 @@
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"></head><body>{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "5d2fdf69",
+   "metadata": {},
+   "source": [
+    "# Análisis de discriminante lineal\n",
+    "https://www.statology.org/linear-discriminant-analysis-in-python/\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "763d4819",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.model_selection import RepeatedStratifiedKFold\n",
+    "from sklearn.model_selection import cross_val_score\n",
+    "from sklearn.discriminant_analysis import LinearDiscriminantAnalysis \n",
+    "from sklearn import datasets\n",
+    "import matplotlib.pyplot as plt\n",
+    "import pandas as pd\n",
+    "import numpy as np"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "id": "fc71b655",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "     s_length  s_width  p_length  p_width  target    species\n",
+      "0         5.1      3.5       1.4      0.2     0.0     setosa\n",
+      "1         4.9      3.0       1.4      0.2     0.0     setosa\n",
+      "2         4.7      3.2       1.3      0.2     0.0     setosa\n",
+      "3         4.6      3.1       1.5      0.2     0.0     setosa\n",
+      "4         5.0      3.6       1.4      0.2     0.0     setosa\n",
+      "..        ...      ...       ...      ...     ...        ...\n",
+      "145       6.7      3.0       5.2      2.3     2.0  virginica\n",
+      "146       6.3      2.5       5.0      1.9     2.0  virginica\n",
+      "147       6.5      3.0       5.2      2.0     2.0  virginica\n",
+      "148       6.2      3.4       5.4      2.3     2.0  virginica\n",
+      "149       5.9      3.0       5.1      1.8     2.0  virginica\n",
+      "\n",
+      "[150 rows x 6 columns]\n"
+     ]
+    }
+   ],
+   "source": [
+    "#load iris dataset\n",
+    "iris = datasets.load_iris()\n",
+    "\n",
+    "#convert dataset to pandas DataFrame\n",
+    "df = pd.DataFrame(data = np.c_[iris['data'], iris['target']],\n",
+    "                 columns = iris['feature_names'] + ['target'])\n",
+    "df['species'] = pd.Categorical.from_codes(iris.target, iris.target_names)\n",
+    "df.columns = ['s_length', 's_width', 'p_length', 'p_width', 'target', 'species']\n",
+    "\n",
+    "#view first six rows of DataFrame\n",
+    "df.head()\n",
+    "print(df)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "74df5eaa",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "150"
+      ]
+     },
+     "execution_count": 11,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#find how many total observations are in dataset\n",
+    "len(df.index)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "id": "61028b6c",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<style>#sk-container-id-2 {color: black;background-color: white;}#sk-container-id-2 pre{padding: 0;}#sk-container-id-2 div.sk-toggleable {background-color: white;}#sk-container-id-2 label.sk-toggleable__label {cursor: pointer;display: block;width: 100%;margin-bottom: 0;padding: 0.3em;box-sizing: border-box;text-align: center;}#sk-container-id-2 label.sk-toggleable__label-arrow:before {content: \"▸\";float: left;margin-right: 0.25em;color: #696969;}#sk-container-id-2 label.sk-toggleable__label-arrow:hover:before {color: black;}#sk-container-id-2 div.sk-estimator:hover label.sk-toggleable__label-arrow:before {color: black;}#sk-container-id-2 div.sk-toggleable__content {max-height: 0;max-width: 0;overflow: hidden;text-align: left;background-color: #f0f8ff;}#sk-container-id-2 div.sk-toggleable__content pre {margin: 0.2em;color: black;border-radius: 0.25em;background-color: #f0f8ff;}#sk-container-id-2 input.sk-toggleable__control:checked~div.sk-toggleable__content {max-height: 200px;max-width: 100%;overflow: auto;}#sk-container-id-2 input.sk-toggleable__control:checked~label.sk-toggleable__label-arrow:before {content: \"▾\";}#sk-container-id-2 div.sk-estimator input.sk-toggleable__control:checked~label.sk-toggleable__label {background-color: #d4ebff;}#sk-container-id-2 div.sk-label input.sk-toggleable__control:checked~label.sk-toggleable__label {background-color: #d4ebff;}#sk-container-id-2 input.sk-hidden--visually {border: 0;clip: rect(1px 1px 1px 1px);clip: rect(1px, 1px, 1px, 1px);height: 1px;margin: -1px;overflow: hidden;padding: 0;position: absolute;width: 1px;}#sk-container-id-2 div.sk-estimator {font-family: monospace;background-color: #f0f8ff;border: 1px dotted black;border-radius: 0.25em;box-sizing: border-box;margin-bottom: 0.5em;}#sk-container-id-2 div.sk-estimator:hover {background-color: #d4ebff;}#sk-container-id-2 div.sk-parallel-item::after {content: \"\";width: 100%;border-bottom: 1px solid gray;flex-grow: 1;}#sk-container-id-2 div.sk-label:hover label.sk-toggleable__label {background-color: #d4ebff;}#sk-container-id-2 div.sk-serial::before {content: \"\";position: absolute;border-left: 1px solid gray;box-sizing: border-box;top: 0;bottom: 0;left: 50%;z-index: 0;}#sk-container-id-2 div.sk-serial {display: flex;flex-direction: column;align-items: center;background-color: white;padding-right: 0.2em;padding-left: 0.2em;position: relative;}#sk-container-id-2 div.sk-item {position: relative;z-index: 1;}#sk-container-id-2 div.sk-parallel {display: flex;align-items: stretch;justify-content: center;background-color: white;position: relative;}#sk-container-id-2 div.sk-item::before, #sk-container-id-2 div.sk-parallel-item::before {content: \"\";position: absolute;border-left: 1px solid gray;box-sizing: border-box;top: 0;bottom: 0;left: 50%;z-index: -1;}#sk-container-id-2 div.sk-parallel-item {display: flex;flex-direction: column;z-index: 1;position: relative;background-color: white;}#sk-container-id-2 div.sk-parallel-item:first-child::after {align-self: flex-end;width: 50%;}#sk-container-id-2 div.sk-parallel-item:last-child::after {align-self: flex-start;width: 50%;}#sk-container-id-2 div.sk-parallel-item:only-child::after {width: 0;}#sk-container-id-2 div.sk-dashed-wrapped {border: 1px dashed gray;margin: 0 0.4em 0.5em 0.4em;box-sizing: border-box;padding-bottom: 0.4em;background-color: white;}#sk-container-id-2 div.sk-label label {font-family: monospace;font-weight: bold;display: inline-block;line-height: 1.2em;}#sk-container-id-2 div.sk-label-container {text-align: center;}#sk-container-id-2 div.sk-container {/* jupyter's `normalize.less` sets `[hidden] { display: none; }` but bootstrap.min.css set `[hidden] { display: none !important; }` so we also need the `!important` here to be able to override the default hidden behavior on the sphinx rendered scikit-learn.org. See: https://github.com/scikit-learn/scikit-learn/issues/21755 */display: inline-block !important;position: relative;}#sk-container-id-2 div.sk-text-repr-fallback {display: none;}</style><div id="\&quot;sk-container-id-2\&quot;" class="\&quot;sk-top-container\&quot;"><div class="\&quot;sk-text-repr-fallback\&quot;"><pre>LinearDiscriminantAnalysis()</pre><b>In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. <br>On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.</b></div><div class="\&quot;sk-container\&quot;" hidden=""><div class="\&quot;sk-item\&quot;"><div class="\&quot;sk-estimator" sk-toggleable\"=""><input class="\&quot;sk-toggleable__control" sk-hidden--visually\"="" id="\&quot;sk-estimator-id-2\&quot;" type="\&quot;checkbox\&quot;" checked="checked"><label for="\&quot;sk-estimator-id-2\&quot;" class="\&quot;sk-toggleable__label" sk-toggleable__label-arrow\"="">LinearDiscriminantAnalysis</label><div class="\&quot;sk-toggleable__content\&quot;"><pre>LinearDiscriminantAnalysis()</pre></div></div></div></div></div>"
+      ],
+      "text/plain": [
+       "LinearDiscriminantAnalysis()"
+      ]
+     },
+     "execution_count": 12,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#define predictor and response variables\n",
+    "X = df[['s_length', 's_width', 'p_length', 'p_width']]\n",
+    "y = df['species']\n",
+    "\n",
+    "#Fit the LDA model\n",
+    "model = LinearDiscriminantAnalysis()\n",
+    "model.fit(X, y)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "id": "45a2cd0b",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "0.9800000000000001\n"
+     ]
+    }
+   ],
+   "source": [
+    "#Define method to evaluate model\n",
+    "cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, 
+random_state=1)\n",
+    "\n",
+    "#evaluate model\n",
+    "scores = cross_val_score(model, X, y, scoring='accuracy', cv=cv, 
+n_jobs=-1)\n",
+    "print(np.mean(scores))   \n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "id": "3361b364",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "['setosa']\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      
+"C:\\Users\\DELL\\anaconda3\\Lib\\site-packages\\sklearn\\base.py:439: 
+UserWarning: X does not have valid feature names, but 
+LinearDiscriminantAnalysis was fitted with feature names\n",
+      "  warnings.warn(\n"
+     ]
+    }
+   ],
+   "source": [
+    "#define new observation\n",
+    "new = [5, 3, 1, .4]\n",
+    "\n",
+    "#predict which class the new observation belongs to\n",
+    "print(model.predict([new]))\n",
+    "\n",
+    "#array(['setosa'], dtype='<u10')" ]="" },="" {="" "cell_type":="" "code",="" "execution_count":="" 16,="" "id":="" "dc73aea7",="" "metadata":="" {},="" "outputs":="" [="" "name":="" "stdout",="" "output_type":="" "stream",="" "text":="" "0="" setosa\n",="" "1="" "2="" "3="" "4="" "="" ...="" \n",="" "145="" virginica\n",="" "146="" "147="" "148="" "149="" "name:="" species,="" length:="" 150,="" dtype:="" category\n",="" "categories="" (3,="" object):="" ['setosa',="" 'versicolor',="" 'virginica']\n"="" "data":="" "text="" plain":="" 'virginica']"="" "execute_result"="" }="" ],="" "source":="" "print(y)\n",="" "df['species']"="" 17,="" "2318b33d",="" "image="" png":="" "ivborw0kggoaaaansuheugaaaiiaaagicayaaada7k1vaaaaoxrfwhrtb2z0d2fyzqbnyxrwbg90bgliihzlcnnpb24zljcumswgahr0chm6ly9tyxrwbg90bglilm9yzy="" bcgihaaaacxbiwxmaaa9haaapyqgop6dpaabqauleqvr4no3de3xt5f0h8e+s5tyrtjxeujwlvqefwnxdk5ypzv5="" ozluyfttbygc7op6e8rnwwzuottqcybtjfdjm4otqwtqoh0wgtvxe6um6wavadnmzq5z++pz6fxpe3sxe5opm9ffcukj8kjsz7zpc="" zfb6pqqghqererbqdxljvaberesuubijerequmwxeiiiikgyyibarevhmmbahiikimgegqkrerdhdqisiiihihoeiererxqwdesiiioozbijerequmxenrb5="" heufxcjpt0d6enpmdnndl599dviviqrerhfeumk15r5xz="" +azpjhgntpgeannrqkfzif79atu0nvva1r0xqzymiichordqq8suzmxo="" +muvcpxvv0fzzymiieidkql1ql6vf3="" 5y1="" q2dmjoxpm+nzg5xlb5xl1xlcubc3nzcjkyolbyijwrhiredeocchgcdiqn58po3gelbarybw1tsiljuwytcarkzehxn75zb="" bll++xadgh="" 4xz="" +8y9="" ovg7codaihfcxidm3g439u="" fj9bwvrzwwgv43e9+hzfeeaphhxfckg0h94i0tbvh4ssjohdganlt0yo5m0rerbqm7e3tmdbhalpbw5grkthstlhpefnmn7+jqvonoqkiysrt29vbkzgrgba2ngyirerecsky43fu64giiqb0eharevhiimiy6h133iefcxzgwoqjcdgceo6557b161zuvlzg8mwjiigotkq0edl8+dcuuoikndq0icmja8xfxaisrmrzz50vyzcliikiobhrqotjj5+m5nmt6zyqah6pb16vn9a7qqnkmpmqljteegrefkstjggrbcbtdqohoqfopzpwu0jhkpycjly8pfgslljvcphmmbah0hbfubbnzx6ytcbk5+fdyrhwtdqocshgdrvx1vdfyc+epzg+ffrixz2iegwdesincbvdubqfeyzmqhjycqx3h8labrfdbdzj3759clvdsnlssd4lik1hae6kqtxr1hd+nkt+sueeiigo3igkufmdndyc2dlasqkqpwevaxeiiqj4ulufrfof1nubbjdgsqbfrcdspubzwaz3lmjxgt6rx4ocvfcdmzbjs0wj9r4revhyvfubixcdtbvaaiqqlycva2vl7vvvsd7dodeq0zgqkqc8hfi4efi0sf6wl8fl95isyn69e2ewglb9+="" zy7wqrtimk7alxoiccasbul8mxdru87ndi++psdjsbie7omeim0wl3gjg+1nti4zislgdwth6dacjmlpfx1mrm="" 0leqeqhdbok02jeohvsr3="" 9k2bonam73y6srcx885vfrgdnjwbg3bp1opbyy2gz2xdmmcfgscce631cywehakckpaqggwfz584figuq3hvvvrg="" fjysvitmz549yj0qt9unjuuwic8vdzabdzmnt8bklst773="" 44ycxc+zmpkskymkecbj++uvr0dersfdpfhgnjtinxgr1fb="" nju9vbizufo0saxed0gmqtkgkqfdyq0mdvvod7+cqq67crl27shxrvixcubbcckxduxz33nkn7rvvpuzatqv3338="" 7rrrljz11fmagh="" +98agndeew0ndq3ysgedaodxv="" 41hnroitz44ioora3f="" pnzcf755+ozzz4dapzmn7="" bsy+9hd="" +c+oq6vdm888g8mtj="" fuk9foxg9+8xt8="" phheoqpp1bvvyxbbrst7o+dkgqys2viqr8v7lu75f3z2dhdr1eyccferhfcn="" b2dmrkzkctrq3p6emx3h3n2rrjnvtm5fmevauoqemdsh49mh9+tpeogthd3y09e="" agslawtmjxiij7pmprzxdy="" 8huckc+higubiorwzrv78mpp0rpasn27t2lszmmdbhv4ssjeocbb="" cd73yn97af="" zneowvv="" doo+9g7969kcwsre1ndwbpnt27tufbaw644qbccccdvbeddnjjophee="" hoo4="" ipptuws6do="" haa68fvh32l3="" 5c6677jo0xubscdsfkxeqs993kii5frnhrad0girtkgluptzr1izmmzcpm2foxeuxxys1a9eipaufx331fq4coicrr74aqampvx8="" np8fnnn="" t9vvb2dhw8ebcnnhlkgntpoeuu7nq1cwcwaneibn++huvfrbjpppvwz3="" +c8c2w7zswvlnnywcggkkpaxhe9="" 7hpqamnqhi4jijteop+impcmgw+muwyntka+np8v746yeshztlfluuiknkdc1yac4pyga5mz5f0ljbpapoihgy8gmkwmbn2="" gq6++iuooow6pppiiioqk8muxxwaa1q5di+3bt="" f+ffzxx3j33xdhfn7bpr1cin7bjj="" +eozzswc="" +9np0nxvhysvvhjf="" va3aqd79u3dt771lcyymqmvvpacqqur8eijjwiaenp6wvnwiakrrayoqja9h52dsru7s1nex7mmluuiskczdqhb8ulfmijozjthm+5ugyteazbmoejfpwa3d70="" gt1jbombp5xyck455rtcfffdmdrpet5++20ufbtgiy++wgwxxebzceqktf6vt="" e29pr05ofny9u2btj99nn7b3="" nnxdw0kknddjukksuwswxxijvf="" vbkc8vr3nzmz744an4pb489nbdvexv="" znp4f9prpfrfkzmhcuk6ustqhbslpsr6vfhm+ki+o22b6fqu0e8zeg3nwsvxrh7h5777338prrr+pss8="" guhhj8n577+grr77csccei3vuuqc33xqt0tptswdbarhclnzwwqdoawnblbfcgnhjxsfut6oyshljx4+hzwzdrkygfvrtn2l58uwyonuqzs+ejxxr1mh79u149tlnaqc="" ouvkzexh9mzz8nonoivf="" klcnnzmwbmgeydohuejwepppiizjvvplz99ttys2znwn8zuuwzjubpaaz3ijyehrw1tqkaoq2tlda7eje8xie++eciykp56fxgeo8ogf1dxekttz4rxv1dot="" j668lmw2aedk5qhx7rbaljfiyj0ei6dpl="" wh2ysefipnz54ujjjpkwk1wcftrr4thhnmk9="" 5nn31wzj49w1gsfjf27fhx+umniw0bnvtev3btwjfhwgrhnbrfgweciyqqwuv1ihurvoicggjhnpvfrfmzxkuvvtr7mceeeelmnj1bpkskipt0ddfv3jzx4ycf9t7="" 8mmpi7y8pgg328x8+fpf008="" lqcilpawsl="" kytlcywki8ecvzlrhkhdwja7qmdrucq7zpqhrbpm8ztdm0r6plmxzclslwyirhqlpzfkititnh4rerfrzdaqisiiophhiejereqxwxyrbkmozf8kiiltyccim8mfgpzrsurewsnareegczqawqle4zdrovmtsgq4ujj8rqwdesiiij4gijprvtv8ojgrie="" rx="" xbbpfx6+tladn3lodpiigounjy0qffkygegmjy7tkguaonlhbg44="" lynhrxbmekkl27t0lg8ga7du3a="" l5icgw7bhrgzoaguhkzfkonfjszdcikl4fb7pj+8o8mjzfmciu1dtuonhziozkbjtklcbo0m+5x4qje9dq0idsckwktetrw0bebxobzu6i1er7fnu1+k4uidv16p2brgzpgtfxo2ppfvztw4w6xjq4ftcsrguksouw9nslkcumj2sgnp4emm1mv="" ebtcbk5uzgcy9g5na7ybfyyr0brhgfhxedym6wgytl5ft+o1he39ehv4lvt10zvqho+jxhq6qa8njg4ujg0sj5wv4ubydtqdpthcubf6p2cc1slanis81dqiuvtydrsxjjylttcf+hvlfrgykcaiidut3op="" 98xhnllqcaf="" zjhygtlyxnzsoukvowysukedye3m0nbgpwrfmdcy64ackpkfj5z3+olpywxhbzztjqqkngt9sxffp0rfu3dodvozsdo3finhpoqxp6otls0ndaaafh888="" bwaoioj7770x48eph9vqxezzs1fzwtns+3rjjtdw0kknwwq1ii8vd0uxlh2wz3pnzswsjutwyy23ids7g2edddao="" h2jeheder0okzgbrfot="" 0dja18dxo6vialop+zdcdrl9fr0obpgx++gmghbwyt7vply5kwacmtgrdsuowdvtlvwubwoscua3wyh0wce3wxhqvobhc4hvm1bbux4gacl0uuxxytgxkzs2bkl97awlhzs2rqjl112gtzt2otll78cn910ez755bnuvfrg="" fr1uo+++wy8z="" lly3hbbrfgo48+wlvxxyw77roln3zycv599vxs2ruljz="" +un+hmpr6epx++umw2wyoqqpcdxu1rrrqqt7a4de="" jueeughppjgg6itrcx8+fnx="" vnn47pppvp7fn="" 61rdw4oknyseohxj88cfx5jnp4uc="" ma7z566ikkjsxh7bffrkvfxwj+gykseodmdmbolihe4suysmjmlhkf3d0ycelpb1avltuq03tbwmqvsxhx8hvebifccsanttu01kcusq5z9iwybiumgqwgznozuddyh5qggptmh29bvmzmtjsxl+opf="" wj5s2bbwd4y1="" +gszmtmybnw9nnnkmli5d2ts7mmxkfpzszz="" dbbfdhuxll="" c+z3e="" +11cddvvvdf379+pkpisnhdccqcayzmn+92hrx99fbkzgxjuued6h3sopvro3vsffpbb3h777bj00ksbaa888ac2bnmcx="" 3qv3j00uehpn9jjz2gcrmm4le="" s0mbgoooeyyhdx4elfffjvuvvtugp="" 7hz82brpwqz8wigoaaxgdkcuttubgcjscxrl+pety="" jnuunbr7du6g+fw3lam+u4ysixz0nldgkzn+dotl7vsmlxzztv47lhhylva8eyzz+lssy+fywrcdxu13n="" qe9if6vf93d3xa6nuhotgaa3obddd111+f="" d="" 8eghh+lss8="" ghrdeijnpptnn62="" fvh2nnxaaz7ys9vz2hdx4ekeccsqa20855rts2lhd5="" pt2rulc+bmgrdqnxlkkejo6mcxx36jirmn+txnigooaxedkssbodaidmx4krjhoengw7kts2exwudyuga324fc3+3phsvoqxzy+geanhfeevaubs+="" djoppfevpxww3j44ycbypymfstwyohchumez7pzev8="" jsvlwh0lfizavn378plll+o1117dvhnzcmmnn+dbbx8c8jx2+9d3o9jgxiihxjdbhrtp="" hfss="" tg="" eziildqerngg00rti="" edzxox="" ojbukjpk8ehrlf6h2cc0kkgoghdcfegjuakzxtjfk8objta6r3w7hwoul8eyzz2l37t04+uijufrfl+pxxx+puro6tjs2lejnpeqoo7bo0siswrqip512gn7605="" 6deski4vx1fnp+zxtk56ejvz8fgzbtg2nn3567+3vvpmotjrpjj+ve9xxx+gff14yejc88847setlq0fbqddvg4h846g+dsuqrnirztxq9bgnriw9dsnsrgmod9td2eoeihq4e5yod9qj3zqopacujvg9kcsuuwwvv="" wyfv="" 73+pyyy="" vvf3uu+="" g008="" jxvuuqc7d+7erl278pzzz+p="" u="" hn2+u+++g3="" +9+xe="" du7ny5exs3bssxxx7rc9sls5agvb0dl156kt744an89tln+mmf="" oc6ujoawe9="" +lm88madep7551fxv4els5di+="" bt+ngpfutz+a6="" nocohaan954iz799fp8="" e9="" x="" lly3hllbf05ocq0ejx10tduhnh09jcm3fd0vdwwiakcytqnfomtncngjoa0onurhfomdacuyaidutkysqqmzmjuro6fpe73+29ff78+di4csm2b96me088ed="" 4xjfw8mmpy9kkscm+n8viwbjly1bcxizttz8djpmjzz33nm9ts7kyufvvhy6odpxxxhkols3f2rvre3thbrrpjtx666249dzbmxpmtfrwvukll17c9ontft5fquebxnnlffz73="" grfmzco211+lqq68emxgiouayhbh8nqsd7e3tymjiqftbg9lt02o9owmnk="" dgr3d3n="" bs2ypcwsiburoh0htl1xgszs+vkb4ec="" xmjggfjjbewniwo8ey1im6resrweceahburfgiiikezxirevhmseckyrhwhberur8gilhehe8iiqkbec4ejvw4joiiacggileweoe4u10ox6glxzkc8n4lvauieherar4dksgizue4iikirmjajaocwtjo7ebccarf99xzd2bpnj3q59m6dssmbgnaw1sdfsyirytw4yuxjvq1isgymkwabvw4jhldt37ye9x4442jfp6ttz4zdq0nymjicpgxv="" 71r6hhatjecy+bsbsoc8fv1sqckp7dm+rcccxfxdiowktlu8vtu1ormprq93632w2lxtli81gsfutm5gb12seeluqufryaiqk9lrynkeb1nbbpk7xkkq32vfub5exawoxaokxysrw8crozkioqufbqagxql+h888="" hlvdeowrorh0uwblyjflz83h00ucdan555x3mnj0bnpsnj5xwav72t7="" bydbg+="" btaiyozaxfvx5jxozbpk2bcoyxxyi1nrxl5evoaggy8loqrvhwwampynq0abbarzg4csluu+++3vtvv="" 12hh300uhotsaukvnw1113oaenj7z="" yetuk6khvpurv+lee09ewloaxo0bhwsvvlb3se5eu1ygvftino="" otqchqv4wfwnr1srphzfwhoayyerwlkakx3trrwhsbmswlvt6b2tpacgmtztw2wwx+xzm66+="" jl27dmhz5s3yuhejha4hzjvvpmycormffvghfvazn+h2228f8bwdticefpbb="" oepf8cbb76j="" fv34yc="" +ynf7zctw4yhhngad911fz755bp88y9="" re5otu="" 9awlpwl9+pt755bp8+te="" xtq1a="" hlx="" 4yih8nigqkikd58+eldevwiy8="" lhs375dnhpoowliximio6mjome3tbujakktrs2suxlvxq8qh3wgrgwlvpr6y71hgxv9dsgmtrmij0ei444toqrexubkyntffz2w5zjrlcemthqin1dennvwyi9nbf1dxekttz4rxv1dit3e65x="" njk5qhx="" vbclpx1="" xx8vbz="" rrmh8784="" 3xx1vvx9v6vqkgqubm5wupxioxll4tzs2b13nfllveknjwc4xk5em97="" phhrvzw1od3vnbtwgfa1ntuccge2ljliwagwlpahbbcrfu3tgaqu3fv7n3mo48+knjycga81guxxcceekk9vv1yrvaxdu3agn="" x6twrrwlpacdb+zlaz5uo3grz="" i5ojkhlzewa6+vwrco4cenqxv2n008="" pzivrvnxundc4fooap6lwgulvl7ep3eu="" yem9uzd4zbtma1wmccrnqlxvmrpz5bwbtnvpnzfw8suuwzxxhmnhnvsmvitvjz77lo49njlytkzfg4="" c+bmaxkhdxv1kc4uhs1m673tpjnogvf1k5otmxxq1n7rexl5ohlkim9td+3abzflhxnz5vl9vr="" +9a="" 41a9+hd27d6ojowmej2fezcyjkhrrzupoa2sdagrmzkbzzskmrlslhuxdoiowu8xpo+88kiqcl19+gqcohmbbb72fyy+="" 3o="" 2kskpa64liway9ousacx2mzvna64bdaa="" j7p7mrbwz7vvvotll70ucxyswmang1ftu4m777wtbrd7xp0gotbelrarqucww27bqaeeihkzzvjcxuvyob29fcafacnod3as6hyd="" aek+xljqej2ux0lfy7es88+iz="" 96u84+uijurpet8sxxxyd2tpauprt="" acffbdwfzw+ftrsdjtef="" 11n="" e="" fbbmdrpeu68806ccmijmd59ovbt2xfwfscigaiwicxzsgs1tbx405="" +5heblstxiimjo="" dvwoqj0do9gsfod3as6hyd6ltxpiy5nbw="" dap4uvhkpopfdtllepnll="" h73="" 9+2n4qx7773e9currcc8012lvrfzzt2oqhh3wqaib0litkzrph9ttvx2233yann34an3="" +od599108+estaibp06zh="" 79eo655="" d555="" jn7="" 5dv588cwwvdyr+ravqotgg2="" esy+9hc1btmd8+pf+t1u2bbna2tp6="" w4cobcn3amajpyaf8sz9uqs66nizwvlymzmrf1dhb773e8g9dj09ht84x="" wpbt2zf79mzceeedupvuuwfgqn7ian1111249dzbcffdd+pyy4="" fjzdc0pttcseff+dhp="" 4xlixzgtmzz+odd97bxxfdfbbxjqkhdckqqdgqcsfw44034suxx8twrvsxffr0ob7f3t6ojiwmtlw1mvlma="" onm2zmyl6m7m4zhksndz8nwvhknf9="" rd3q6+vu5srk+kmnegnd3d3ys2cpcgslr3xwraqsotd1dbknywkrgelspfgvepzss8="" i+9="" ptra2kbm79cych2urpeimon3rgfn3hdddfjjh="" +iv="" 970hls8ohq4cayeqh8dyojcq1fop6ggtpkqe44ukrd3dqmfrixtlo8bxixfnrn60rk5mzmlrswtvqtz="" 9nkzmmykcggls2ledt99+oy6++gk2f0q6fteeex="" juuvwrcoirytgfdx7rlrpnkxd9xkmhimjfua8evvqppbyyzh06bdy8vjw4yux4r777knycnksd21uev1zpcqtzpe7oohiadeq0sctrygintxg6rm="" vxpwjbrfgde0mhmaifilxou6ergfxss6ieos65nnotrhdv2iidqqegtdxwkxqvfiikjj0v6blcjhwyomfaj+njrejmpnx2kjawyiohwhqtghr1y50+mm8z5qokmf5+by9jtailfuok5lwdnhrif8lvanhcx01dicrfw5="" aj1fbsmkwljxozplbcvnjwctqqifh1ccdidthw5cgrjxozxuwagjabayk23tarxbjoszxkfder0ahbq7haadq2yqqnai7dtg="" dee8c118z2x2mo3nxcapc7gizfnzfjxvr+rkqabpab9lunj5ry05f4zihgikjd="" ynihwpytw="" weogkjmbkksgi2w3cey9w9ngatkjoaaadaxl5erg3bhx6enpivts0smazmt0hnjs6boa="" ctpnzbjazdalq0xioaoagygo9q+kgxpkegkx9n1vmmiaxowsqzgcotemk8neaxirxkwi3hsclrdw1t5qwkhb8ehd8vux1c="" cfalweor3c9w4teyterelbnxdjojiolntnjl2dsrrwy3efe3njdd2ioiqghrfcyxsdteazqcibieme5cbk4cqw1thl7fekqlerkmqiywh4myxkqyiolvwbtx1f3dzztiy8xrlkizdlooq9hs5nlzfinvvqqud="" 77gwfe+iijtiks56tgqyc21znrmuyd584epp5tbrliskjwsaxih5bdi+pha2lhaf="" 4txdch1ilxootshktv5pw0nckpwhuvdeaiibjvmmdvbfbtufgyjccyztiictj6ahcnuwyhsunaouparx8fv="" qstov3ergrbjeq0sl1jzmehudww4gzmwfmlc2ckydopj7gg4k4ld5hreqaxbwrhfkvu3h00bj3plbq5oeocvdtbwcwtawezozt4n1ernsfrmybmbdrgx+5gx99bozdk3m3skvlaryhbhnxwrypiihugpptwkezhqkmd6n="" mohlcmgewqekqunmnpsnfu8rktjc8t4iigi0tyoqaxedcsz3yztbhfqnjc1njr06ntk4uzngnvq8j4iindjbgickhqkkd8ptltunnpiiw+j9reskwdkgzbhrkwbzn9rgqh0mbgmr9xcxbzzmggff+4iisiozdrii6egocy+onpiio+j9reskwdkgphfvkvchw9rgyv58eckedsiindlgbamecnsmrax4="" hfg8mtzw7f="" p9drefvcdbxa2qzn8pjvv4kolsv7y6bb2qycmtgzqipg9wrg4eh53tiagfx84lbbyheeagi6ohfr6ptsmi02qtdmuoidjmhxitot7hmrudd02jhfsljqmmdvbii6oshaebn="" rnx6ehnsvlzgr8dni="" terbq0nmzb4+q7cuidu8m1uu9erefjyxzrder0iphizom8t0reqwnjflemrhringvhjni+erefjy1zrdeq0qkntg2p2d7f++w5ioozwmxgdysbie5ocgp4rpapqkrmjc1cccxajc="" ly6o+wcqrjritnra6wn81hdhiqnth3cenrvxnrileiw2stnd6rg5fcgp4zpajs+eisbo02mbquddhb1zw1afoluqxzo9xtpsuzow5lsjhrbhdlt7djoeihstaly41uhi1ergfafutkgixynxg7dkiin1iiejburtze+jwyfwnu132vnrt8rrdie8p95razp4jol6cw68rdeqoklgqdmzzc0qeghp4vtokxthsu1biwemys+eielys5vbr7acvs2cmyaoulp65gnb70psjnatrvgbmnavf2xokufdtuingzyoyk7nrklcco0enb45onaapc6tdsuq4ch29vh="" u3pa2cnhoza9kfxyvlv8owvnyrndl6gvgkiri7qymduqokkznetlve6qwatsq1dxwwa24ytfaujrdhkwnlkvzyxw1lerhv10tz="" xtu32fbtmdsot0w4bwta="" 1d9bvapljxne+6mdraxzm8zuhcgokczuio2ppfrzvxizaw7vitaqilzupqzzu1b6uxekni1g1jz67xincjtrjwrhkzb9orjl0ioyhcwpaqlkawhtm1qpfkfi1bruclgck0gpgn9thnbhhn9trkfyah8ubvdtwqrh8b6mefu05="" kec9cpdymuyss+cmcnciqk2v0nrw6xautnqg7rgomtzs2ay1oazdazk2jnr11ihmoyaloazoimlkhuov79hiezmetyurjn8wvzrjeyjf+skvqhhjwiftk10ph++vbwucofidf41ohvhvtywjvlu8gxjnrgvnxqd8xwwqxrw0r4xdqyhjlqnne4lkjeqoyjs4jcr1mqnz8nitmdl8d3gdxu6ytfakj0cx2c5rgexztn8gr70z82kxion0ys9+npbijs6za0kq5k8ehrlf6gpqwmdj7ejiddc1yyi7cku5mxxwq5rrjsvyvkhgzya69fly8rk8i="" xbnrq37ejuo2cdgsqmueeioql1y3madbi6allsxjjytq76pfpz4qtyyzutzeau5qrbk3h0loxsp4ikspak+cqb30196olrq7hfbf35x5s2ht9rk5nbzuyifbeatw3smufw8oky1bxbkvvhzgw7hzyjbyu5xszjgjracjk6a7yix30y9xirssyiwigihrr0u50d4rwc4evfzzh7us5mgqqiojaugaydhfq12ijf2dywzuirn9xwsxm2vpz3s1="" n+np0r3wvauhovwoznmzye2ywuvxoamrcwnwnfscw8hebyi9igzvvc01chrbyqqkkvrjrwlhmkieee3pelpp5ojuridm3nzztfzif79adxu1ghoa8okll+lccy+m5eusrmkht4qfw4gsrddt9ckvz6gfri5orfrfqloze7nmzcjvf="" vbsl4mxylac6bfcguheswiwjvcvxu5s86s1zdv5nowayhoj8icbquwymgcsl4eucd6fw6zm4dmt7nwgjfoxhk6htezcjqm+oxclhfa29sh="" bgfcwuheswiwjvc53owidfuiljy5upkzgt0="" k2ymchwu0q6ohyos7omod5rd2epe4pq4oxxot5rz8jhrhori1loxm8izjpqczctw4a2trbevwmhdsr6l0hn1mjhxtnf6hr3oqgjaz3uthtnfgpnuws4dzdil6i9k4xrwyrmuwxnrfyrrp6si4jchixdibjengeycd2lkgkqecgkfqpbycm6rikgwqxqw5ego9py9heqoofir0chdu="" e3xt9z5492l59ozizmzfx4srivnrcs9dvmhfr7iy21hscz7ajain3rvu34swzzxxy+5vxxon169ep+hiwea9etl="" ldhqiip4r1flv0sxhhyxbhl+51oyoqn="" l5my5y8xub0ymyh2xwxh0mjahil0jtmfufkc83h9psn297empriyrxpgbsajsfockk4cppplfxshkd9zqbxjzgfb28h6xwxhaj3bpjbhpwtbnwnxvwmkffwepgzmdcrbphg3ryxujey56l4ceealysqpwemuvinksv="" ddxcd+="" bkhmfwzx8ixxt5r6="" 4oqkh1wwps2r0j1qerucaekr4fs55frmrrawhnzeiaosharfhkd1nt2tmyzc+d2y17kljtw="" ndhu16uomdgfu51ecmvl7ep3duxpvejqhqtxvwbvufusy6ubu3leylirklsptupaxfqpsoylmoxin01mwnrpoawavhabxazrgakplkdxkiz3d5taf8itb9qdpthcubf6p2cc1slanis81dqiuvtydrsxjjyltt0wkxefeiuhq55ljp08il3swqhl2gmbdrgczg+x212wgpx3cwoihafn54vsv9a3hfrgrge60nuhekvm1bbyflgyk0atjndhgnrtjndhskfcdhcmdvtlucpihsg6oqmxy6ccgwajg8lc="" 3p94ci3l0gqpfd5zasrplqt0zu+ah9pti77eq8rknr36hf="" jd8hyxrxvajzaqitc1dtwoa6xdlj0lhkfdqaadazn2tnq11qgmquddqesjkntkt2ixo9cybii6oayg3d3aximyz8trlqgimrw6axzwztxheb3rbvcj1hpz6gyew3hdmus7c8iwzinbcaprqzmuikjennos="" riyoa1xwwzg="" xp5wvmp+yaeyccic="" 0dg="" z2+z2fmkug42lpmjhzvtq8pxujceatrscyozkbfqmflo="" vlqbutzcsrguyk3xsbusuimkr="" bbmbbsdsyx3mqd6bwzoj9dwjr="" 7pawrk8o3mga+kxois="" jkujrdhkaujgwu2yoeqhnxm4qyi1csp5muikjeoyjav="" 4lez28xt="" b6c35lyxy0exn4q1sabztb6juwtmolwoz9kzykmzo9nsjuasz6dz0rdl3dafwesujttljrx8br470dceoxdkqoc1mfipwvivnsjqgi1csi0kkm4pxlvnysxlwaljuwqrjmhgrqt5xwajcfbdmhmvkasan023dyeceyo7l231thikahho0ohurnzynkrwsga36a4sidm="" xgjht7bkutdfbv1nhwgtg0ce5tdbikygkootgzbg5k0chdsmdeyoprs0kyz4zigo7f2vetlflwkorszy+grlysqpjjbtcrzh="" rygyeelnlq1lhk6woxyunumxe451amip2npcreqb8vezmt0dmd4dmdpv="" n9ojrwezc+j1sqhbcxmed3jkcflnbtgjwegokpbvbcony2vb0="" uhfwikaoym+vlu1nfxojkyjbnydyb0nokjcflocupaea26vobycn6w9cicfz0tmdinzsrspn2lpbiz2bl1ix1igiuahnlraocvq6ujvlpjxxqsdn6zsqolrnz8="" swalohzpozgos2jpmmsbj0ai+byb3rqg+avsq3a6lnhojircbjuwpd+9fhqg6uhgjrkzlu3sudcbuy4zxxyazpuxyvsiqebjc8xn2taxekbii6ozxcdk2ub0+0hfwiajqcozmb3nbmz8vs1cnjssh1eiddh4gzm2vlxmuukq2e0ykddy+n7="" xu="" bcbtd6vp3utgsrarce00goglfltww3favpbwi+irihqm7nq6qenbf="" k1iicosx3="" vvlug9ndtbvnmxszgb5gjdlbia9px15ihkz+lrxikjmedejrermah3l29vclzyw+tsslo5orkqgw7ffxql7akje="" qv6jvfee74bwombsemrgutdg2ye7ryzl1lpnaqbkpiwduscwubej="" rnzvsf0q6kdg9awvnfcue063f0r2gsmyun83s8fco3exny3yjef9zjqtsicaj0ta4yuafvfoc3v5vnqf0lktu2ysfedpsscqbzyqrbyccie2purv8if6qregaivfblxugywnznllfyzdds3d03fhvqqccyzff3asis8uqreuiz3ne="" pnjdq+abjb8="" clre+pfyfhrlfrk6aiihh="" 3xx0inqs3n0fpbl1+9q="" 6gb+mxcfm8ctfqd9ci1zkkvnq8pfpsuxu4fos3lkbvnjj8wigildcisofm2zewdt="" qwiwy5ym7m9p1gsbarefu3iziyrniy0odvcwulgncgw++wpjug07+elfvovl1wkq5ofr7nhqkulbq2yo4xa4upbxabrbdaddcbrajik0adpcdq7atgiissyojjybqqjqgc5yvzjncca3tdtfibthdlyhca0ahahlq8bvek0oi+dsrlo6vhkr="" sz+o4nuv7uqd1vj4="" ekkwljhnw99y84ejzrdndhwyqau5sfrgymkrchvgknd8cqy1="" lv0nbu6lmrckewx2="" miohqilkzwuz3jzffy2jyzlss0dkit+kgncn3wzytyyaw7hy0onmwrtrjl6bqu219brsjkasctja9r4y21eyowvfmtjx3sgposecxvmqyhft2cjysrgtcht="" lars93baylchozleu0pfqqzsotqisgmdmny8vg2kwqmme9jsof6i4a5ipxlrsij3cgs2tiqclesuoyi5cu1ctbo+kcihq3nwmouwilotfwvcp0xbcdshifzyvtcokt0s9ehfojkhpdrgdif0nk0gxgoxyeupsln64gpwoemtam2flsqhb043mrmakw9ox9nslrcdc+hjqlczgiypfylgkkeaik3p20ve7i7="" 0ooyhgk3vqhavfzah4twkfocuo9pdiyaobns6o1gcu4w1565hhrhsn1c7bynz8cqswyijnujawzdda9gjksbixyp9jamevzwaihrkwdpw42="" 8ge3ojmqlz2fcyjhwvix9crxbvj3lwrxynlvlzsrek+5u+rj1lgvr1uatycnjs+tyxbgdkqsn1wgmugbs6dvwfvuzhjbubrpq+gqsrjrlmjtx9nzeclhea+tyxbdricsyeohlcluegb6pfvudlgey7fmwjlnh8rjq1nwengsaks6t4lam6dtozkr8nxirldouacorx2jo="" bcocpkud70mzn="" qm7iiqug="" xh2sx0fsqwod9rj1bzvmdt5lntgsl9g023rr6hspizfgmlkr9pjozp6f4ceih5mitf="" q09nqw3qguuqzc="" qdujubombmfzm1dxwoayhaf4xklgfo="" s8evulqmlk9vhviatseuka8dtlwpytpqyoshqh4a5fek1qrjrfqcqbxfm5d+zv9elfudxxgjosqeouonapiwtayfzxy+cchhaesi6hjivoyjxayl1ombjbladqo1zujyqgca6lhdkih+tyycvbjzfnjntlrr02ouu5+8najaheuzl3vrdac4zautxnmoz6rz2cpu4oqogzx4l6rz0rqhknvlmznjwyyqowfr28rkwmlgipqgjwrabaw4g9e4hppwc++wxob+="" bpqljbij792o7ss9goh03awh5lpi="" mw6rmlexr4ari8kpu0qx1l="" wgmmhz="" bmzsdjauwmyojegxds3cm3nzfdww1wbavz="" gygkid6="" 158dyfgikf7pgajlibivagmufdtuingzyoyk7m1vbvuy="" tgljagn+f1dad79gferwxcvf7zafmtfumsvrqdr1ozrmmyijbpwqojeomizan5tvy6effqfbvfczhkronljqmrajg2dfjqk2dsjp+fzroa5ndq="" plr2="" 1iyybcfmlh2cisq0wjeu5wlywiog3ajjno8="" kgnipopzzba20f7r4beoihyfrx1bbgjt="" s200wwlivnhjfy0j9zshvs+1mo4wgo6xemlyah8ubvdtwqrfkag+wiprpufkaycnyvpquym4ctgucaqmrirpitcco9tlzvzsiqhjoryhsuk4fhehivnokmuhmjw71oqopxupw3fgpxqoibduhq7fp9yzuh6woay9moj87kvtjfdd81rrwemvg8suxssg57ta5huu5d4uvvsnqwl1dettpqzxqpzfmlg3nczopl6gfncbytqrysupmhkizziwwypxqvkcepdz9yriqxuqkphoh8pykufd+tdlqd9cowoewknvl6x31km4pruxllrgblhvjznlwpjeteon8eo014kqrzomzdiwwzszopwhgosarkuzfoqcyloemrpxsyiyuipksg87nzlivkr+kins+3g5gyhr5fmq09i1453dihhofvw1="" odrdmrojnspqnrossawv51b0djm0dlfayrsgokc4ocgh="" sxg9rtuwqufvid="" np0nokglyjjls="" nhntrxf1++6vwknzz+gpbndvd+eulgpk0qqlemrcimirhozcjpwvzyhrmt5wzdvbr="" zkshuwpt7nyyyureah7yuvpg8rhqe7gwizcu9jl0euiybet3s0djsopzn7ykf22unlitrlbjap5lmm8dzv0k0pvapuy1tghjvvgnisrqzgoppybcwklybdaulpbirbfeisblegxfadcinl8u86fnr2l+aubbyokni1f7ubaplls4vw4iiabawahoq+hwd4w4dne="" wdaxqjnlb+9lxmoeui2p8cge7gvdb4fbefjzh3m="" ieksoshkqq++cjzzjlysrpa3x9oqohov8udk+eefx80334w777wtntu1oo2007bgwqls378="" 0i9ngqb+rjdt6vs9x5pbormcam6vg2atgwajgv7hxagoqxbcdfuppcsvbexzrwjqaslgvhehbjq7mlguxysspp9tipzlb4y1juwkoquexyod7qddeu5w7idrxkqqkmwbv="" ut4milztxvcy+u18vlzw8hc5anssqdkycffhhxx301fvcdh+dyy4="" fr371k0yymagpp="" 54pf+aysdjkscm990nlz2eouhha6="" j3+="" chfi3vxchvb5pk2epzpnwkb4ougcaaqadaungjhr7uuh0oah4r0csjmrzf="" kbbombuam5sdimwdnjrhnxc8ijujfi6ixsphuq3gcfyibdufowtgtpkbdfd50svc2czsglai6i2+1gdxu1li5doud2s88+g++8886q7v0uf1z9urfa29sjuxsuzg89bnx="" p9dwjk8edabg+uub3fzza+l2y9+nwyghtfpy+hamq62vv="" d4meu2ogciyzgei4wqediygqecah7fa2d4oyvrjssol7+rbk3hpixj2n++hx3udnr5uoj67nduj1fcurq526w9xz5rcqgyzbjhs0qsdvppj2zqnm0chn9czp6pq5nbisuip+zfylxrobprqksxsrferxc5otkdbs="" jycghq4egbl9y5uqswleikrteeflqq8cyzfl3ajbl4n="" jkb9rhwmyn07ozkurk0omiij="" w3z73yy3+nr5u587v="" snd4mloswbk2fnsvye6nwajmmy1dt0uzxt7hfoitrkwv="" 7mpjzzezocg7un3c="" jko5kqjndud+esuvdtzmsoomljksbs6kuyoro46s240dk1fvzmgyoevl1szg6x7quplgy5ytwy233nj7vb29hrmmtij4="" thwrlqx1+orpseej+zpud="" a="" nkftu3yd+rxybmfrxc4dej2zhom8tfltc2zqd1ci4ikwqgtly0p+1r3wewvvxrj5mraymjqrf8ptv0p5gqybdj2rdu="" cppu8xfdejceup9ecuwddzos0tff25="" bibs5oxho6plbr2iayakiaccsnz0nk8k0ppfjyjejq3pjambqtclqbwouxurvleylqkutv0mlrezd9e9tfo45oryj9loc8vep="" nafkifha6u8xd2uu1soo6akymfe0yw3nwdi8cbfqhfui9oeirrzcnjtc9hq0qbfuxpzm="" opxusirlqvfbel2ddt6uzzvzpzn4ig4+9ms50noyh9ddngtsomrnk="" z8wmskrbjovfgtlsumzevhna7zs3b8bjj58cyzemmfdztgprgdrumdormtqxz6eml+7b1="" ebvakxnihc65xb9a9qpj6++4od5rbrmtdqzkrxtje63z1o6giaeakntzodjyx4bh="" 63z9hwyubuhl5zw8q4mukrvpnpgpp6nm6vval092j4pxirdl3dfm3ihxrz8t4ypxxf7dq7jrnswqeiert3nu6ostmlck+1szzzz+pk664amvwrmgcoxpwxbnpyo3atdi5cycmtzo07go51kzskir8pfpbrk6+xuzhvvycf="" yj="" a2bthlyvh28mnesfsmmt5zdnf1dcjuvf5g6ta="" ns="" 9zjjssgkhptbt4g2ozve001rtxkb4899fz2ne2d5myjuhsmzciyci6hurd9f+ckiurl3o+="" owgnymqqno6ojrhvghzfjtzy4iv9adipjjd8rbqesuuqrntu2499570ddqgbkzzucvv14zmqih2aqmavgllwi="" +pecvjgz5p1gy9="" vfzc3z2bkgghvxvl7t9vliybt2bcwxscz3py1h7gaernizkq0sqt7gvz5uvzpzmghgkydeenwddztgpw5x1nzt7ru++="" 3tqlugy2y0weqmiprgts+="" vrrsxfvxrhcllrxv+p000+pxsvgtvgpowrstdjtltsljqf33cevu7v7aof0dyiysutv12sspsa2mzyzohqoumxubrcfdrv215dshij="" hfgxhg4hvmi7pcay4l="" oskb8dfukmfnqfbaal2+4hgs+wmmf6yhuwzxplzubt90me0kymmrdm2ukmgmsthhbs0aehcw60y5j7lpvic0mo="" svwmwfoin0sd7hrbfks7woimcjf89pax11rboa5gnooeh+rseodx6ww7ytl6x2unx0+co0udrgcdtgt7ijnzux6da+7srrlegfxfnvydcg3dwoqx2h0o3prqurft+u="" dfe2puclp26jl0jrigud3pkiowjuf12ecy0zcrahmfswnl7ojzo="" lp7mek4xadey3ryrcdmqfll0ekuvn2yvtpz7r1vjle88c="" au+9j3s+="" vd="" zucwy0d4ptbh0="" psai+fw+valj2rt6byl6cl+9v2y2lgrkrb0woqmzkcwcm+7a527g="" bd6="" wykjrwgip4kfnq43fxfeiekogz1qkaqxyibpxjxyrjdznn8ms="" bq0uz3bibudhtvk2hjubuzhiumq5="" npijaghyxggcwhw7x4ztdlafeng4e="" ag4+gk5jenbm6ycxfo6uvo+8bk+lk="" 1x="" lt83slnhkudw51heknu3pujdl7v1yvqubqxyf4hrdmo7m3pgkmwfjbwl+l7xelfpvmy9="" 6micoyqz3717zobincly5q0sgjo5+i0g2ncngmtmzpsaknyibiiyem+wqdwvlmpgvlpa9kg0nw+dzbdrddzrgaj+0sr6ur+tunesajo2zhgrzmgwwolone63draoeytu="" sqrt40s3pxtjxqte1xuqmmiis8nsd="" e9ooqy3jnwl1="" kmx2btqytycl9vrfvaowndfj5ne559mm09k0zvmwi0y5thjrrec0oo5svyzlri1utdjqjfbtl29x2y="" fi+zyzmflfpbs7ujk3kezv="" zc0sxrsstlq4e7akc4jupo0o3h9sdepaspu="" 8qqaza03vlyaaahp="" tak2qzekuoaoluctkplkg31dmtnsfpxr+msbdys0c2dgaddersntkbyjblgmplkkfit49s="" fjs5hadawmswmmyighisami0rji1ejojph6az+0tl7usou="" ga1gpfnsmgfcnffxpo1fwbxz2qxadg0zifcfnhlmyevlazc6pfgi3vhptkqrzwibiaol++="" voyps6pjnon3dmvbqv9="" t7jr="" rqns4hwsw6kzswknyyciiaekigpfthtzau2pizva138jjtnvf7wy6sq3vukt="" w+hx9sdk8eeu9movlq82vmsgdclintbtw6cpgji9siekegiy9wx46gwgxzcbltsihu2l7="" 0xqjey422hmik2syg9arrlyhfeqnauxoojnhwu3sp0qxpqhfuw9njhciuohuco05o9aessaybrtiex83="" fxltcpfus8f49pfimade9hwj4pavxlbmtnnjcerix4+hoisjrl0xzqrw0kuyzsjq1fhzagsi="" 3u0jtgeua2ilytsairf+i9ggxhxnngt="" va="" f8dxecdz3rkif4abpmg2920zujkqwsalm6lnp="" haagtixneagy1exmvg34kqwta="" boqvjnje="" u0otxzniovuroj1irjedbvc5c41dwbsntmjfp65bis9xpktavtvdbk7vl7fsgfgwls8ntorpkm1zig0gssiaox6++vpkuxnxnhbfhjuyhjplphbi8bx2jbf2uud1oyzttarybo4ranlx2kbukafoh03n1cgieljcmamellxy3dcwzw12hrdqirgxvc5+qopbpytk7pg+p8y8ishz+cqq9ykk1wef2op1="" zwpwuwyqbcrcfse9u6u="" usujosza+i2mazdllhjcwl73fdxzwje2ycmqgqbbkkttoloox1c7rceqrknymxm2rshs6oqxfuy3z6elr2t6ld3tegugnqakkany1l2olgs1gak04cpvqolwlvhx7p6zgnwwoqmh1632wyiwqsangxxjk3uc+kahdm8zv="" ihssymrrr6piajzxvxvvztaykgnpxm4jo9hs1djbht5ommjutqmgrybl2okgc2xl261bzsl3r1dur="" aeoj3ybemtltrvxzkwecz="" sqpjoaxmqqu1s36ovviruqpshak34kaqjdvvomiy7ut="" vvufljflxnnfi+rlefnwzzjqmzthi6fiqrkfxm9fadjlisz54eyyigoociuk0ajm770xvyqr8wkkqqtdpv0a4pm+alal2vimnqgifbny="" mdsdrvs5xa6+="" jeabl43h+="" deyy2bzr="" belkarawawyowbxuxnrkqa16mptvxmgp2gjiddz0ylxzvxz82szdikmbrlyx2dsyckyifhxlng7ze0brvzn1bh+q1jiai1g9vwvr7="" iqtanvhv1rh0szoybgebuzp+bsnnxm4qyi1imnrlbajyrj0upapklgqifjnby9kwlrlgkylyp6opv2lr7e6opvmpu5ll+q65wnfub1wetdqg8="" odnzqirjyxaxof9dbeyflsmmeeeqhbokrhll8rh2vp63xvx9z6aplzhssrlk="" 0wlks4t6l3cs3dlbaylsjoke6tixjiqbthspiqxbxrlfeunkklcsokiawjqqmwskgyuoqi6keamr="" czyhwa="" exliz2eucbxbdfnkli2th+liv="" 8ktzvxh5cmdcupa1tbsqyi7fdeqoaoijlptqpgrsukw4pxivl1cg1rmx2ucdbrbdpbn+frg6dkivijnrohwdooczhg1iiejxlzikrvpwfbaac59fifrlqs+pum4ejzrdndhwyyag1oqj5xnvnpujnuew4o0v2noyb+ptx4ctockkmcfnlyoigw+btvzp9hplublotrlgxbw0ihgoi95r3bo8i089tqoz8urr5f1z52r="" pgwkwmwh1gmz7nmfefceaofbgx8d+bdm5c7c76p="" h7ufrsvbx0h0kd1o7w6flckgh9ubdgtfazg4wboxzko4ufymg4sagudiewdfcmdvxpnncecapitr141xoidbbgp+="" w="" tnyajhj8eacpozurptf="" czb6ewg="" e3="" o2u9rxwfnn+lzlc7s52nd31rur+uambnjlbmw="" tb2nzky43u4iiedyurc="" bt="" axe0dnsowzinbcbnygsuxdexbcenkfvsbddi="" aegi2a2sxluhu9wi4dwbnpxhqpqr8giqqpo5mrpzujfs4ltr7i4ocvqubi5xhsbd0rp="" oqcqwmkxxubxxubxqomblnsdilwa24oucbqrjgfv4c6jg0yn9yli3imtqandxjomnikygiwdcxk6iomhbjphulni6bcgmknuomjvs4rh89kfcfd0="" rhnza9cm+bp8spuopvmilatk80z="" a8aovdddaarlcaam8wgotwyrutzechicafksjhvabhu7uvllt="" qkha5kghvjovk0qderiu="" rwz6issmxv4bi1564jexzkwwezri29ft2ebnt3dena="" mmz="" vufy+ucaqmtuqueyadmjjmebhq8pvcegh5vz6idiyjnkckb8vn993yiidessdvl="" 8ddt2qcyliqayoe6wyvfzzh7us5ys0epggfmz7fhhrrosx2mxo6gpbktiljailh64fbccmrvl3bc8ghhbgak8eek8gejgmspiohrd2tsdgndciwrhsxjebghz8ebrwr6omrusegq18qyjljmtnafhsrjgggiqq5gvzs1bpivi6taahbxwmdsuxzeja5iupuxkprccgy+dda0hup3i8gyiqrqzzutmuchuvnlme4lhgsrer6cm01wo9+b3z0kcwteuigi3y7kjsltlflxireulutaamr0qt+m="" lisc5qpcux9p="" cazqyyu2yosvtbyvraqpb2buamawmeisnt0decieepqcmowlj7wnx="" 7z72qnc+mi0aqtxy4ckpux2ipjnmmekvv12q952w="" w2ljregmzeyranyqwdi5o53a7sa90hr="" aiyzger+jfj9idaegyjmfsmqnhktkhromrs3jmyfvzqxmekh499bbw="" 1aw1tfr0hgbndrrcaxx8r32ey4wmqqrdesqblugbyow+1ag6mb3t3d8aovteytui2pmbvnmbhkemtewh6ukb0g15rew2ey0i+1phn7o5csins7vf7za9lvbsqna+phyws0eczbhadywzvcwiuxrq9="" 7ozhuew2cfyuvafwlt64gpwoemtam5fitsh49pe40nke1iqr7jrtlvyg9afycwghv9ilxng="" ppp48binpl1dvl3t7js9ix0dclg83fw5vbnvzzt1hoeiaddhinnaekmy7r6ou4pvxjsw7hzyjbycn3f8gfwulmqnhdk4phn7u6yy6vh01qqqana65e0tj8pgph="" z5ll+zqipiqmrnvkp5g+rudpaett7kwpxv="" y6rwxpwl25nbjtg4niwv="" yzelilxi93r4s7+p0xvx6ounywmzmk8mtrc8sdqkxipdmfya9ltknbwr59drdtshigpoj0tzvjokc4rbwljuajoz1ifjlz8tzmq2tspziv1dflvx196iwfdcazzeip1pefi9lm3umoq4t6pl="" bs2qmipxie5n7tvzr6qk9r5gn54wmdocsjv1j6iatbtixjb9+4cdb+wqjmvvn3ngvvtxofglncvb2wydszjwcpczv90uv4fqmb="" die9pthwq9ltinfzeqqy7xilcqfxbamzavqnvb6uhiat7evl4vfub113xn="" sieki2ziampgwg2diresnffswhz+ktblnojmzqtdbn="" omup9r="" ktn70jsgufpktkuyuxgysbd+owts="" 2yzsfdojdl4sg+mjlrgxv6e7dvxovse29ula4wm99xmliyyhaleajnzt8q8jxwrudragtkiqn8ic6yghjpi5w5esnr8npkr="" fz7ubalny4os+e3sicdzzbt0mtj9tvxcrvdrenrdenpkzcmk5zcm5ymp="" p6ys5nymhexv="" rfsi9ls8ftuoic2lpmjhv6zs="" v6dtxo="" hreb0rgppfcqfkcfc5xdi0d8xyehzc1h+tdmq9srxgpmifkzatgoolwmfaqwwm+0wgoywm+0oscuaw+xaqm2roexdgfn3tnnuucdkybkimal0zajjtzu9jzk58j5fy="" rmliykhdm86g15+xbsf5krlpa9ma0n8rk4gfizrhtbv6ia1dxapk3ymtfyeyc+hotaw7vitaqilzupqzbu3h6eeapggin8rhsq4c421ajly8fks65jk4dp0+xtqsfj9ewsjjqegzrr4="" ly4atlrebymzq0b0e9envndhqkfadeuy9v21zh7us5ctfme83cb5qgrhpnbmmrauh9ptbmznbkqwdggd0tc6ng+y1wgmxdmx8sgy3y9zr="" vrzushaysgduwgr14ooabiz6qtdeez0xzkb01opqv="" cbl+eu="" eyjijbx5h="" +sk9ioy="" 9x+g5ptbqeqzhrkxlm38aahdpaie7hqdadshl6ybxktdwmidlbt6p5="" wjm9o1v8u2t8p9bomz+dyupcvlovz29h0imqi+tuwhd8oaahnm2oxakuldcyki2wqmncusgfdynn5ntwcuhglcreiah1n="" qrt="" xtgo9zt2ne2d16himlggslohde5da1f5ul7a36op66hrmzydj7wcgg0drfczriho2vowxdqd0ksps="" 6wrtplmrdt6cbzv3nlpxgorvpbdpqmxpokywa="" spjs="" p6rguaog7bkxryjgyyduyyajjmhhgvkzpabqhpsih10msgxbt8javm2jmhipcl40u0d7cp2f7tqsjklgqqbyhwya8s="" eyrm9w4c6bj9jxsgduj2snc8ufngm="" t6ill040kg2na="" cjjgshjgzgznt78iohqdsq66twq3ofhklinzuzcfy1fyf="" bpkwxtohdba+5b0erya8s="" eyx4a="" xbjbnkoptc+cop9st6imfycjajmfpuwcg2jp6qy0rxquaqd+ocqf4nbmwf+zgmml7cmjphjy="" ityrda8u3uuvxnt1dohdhg8hfo8alik13zqo8enjcbjjmfq7w9hqaoxfaefxtnhqqynbjl9geke9ltphetfs4zz4jh64m5xksu02ldraqeqjyheqxlqhycrqz+iihwbtjxnwjrfbzpzaeczwodngsjmrw74elqvr2pyiwk8w3l="" 3id2ajgptb+dyukbaguey4ha7cnvm2="" dvh="" 57xgmtmfzmulwu3hnqnzient3khgronyvdc7zxi="" wzsojjskcbvvvaetmwccgwajg8lc+pbng+eckywfyg="" h6tbwmm7yfhzudpeza87mtyc3zj4mx3i63o="" rhzi2k9wrda+2blsmf="" 2350ebpgnbphnpphmpngvbzycxghnqh+iubprxmmzmh8afnrml8a0jagp8+sbgxbulfwwcxfnbc57777cpljjym5orljxoyj5evfrvgebph2u="" vmpcoe="" 1s78n+wbkkx34ich9yiqtfegkspb6leut9ifkssywe0ohvh9rrr5gycv3hhmvpkwq3bakpbcivrakuoekl6cczknywi7ci0dtvbdcobhgpsqi="" q9nlivw5rvkhz6k++ctxxr3cnw6zpvciygyjb7czff12e6667lpive7difrde4+="" um1pl8nt1n+he05uh5l6pq86dac+wipu6q2qvqreng0ngjgdqv7kwcbgnrjq4grdj0a4spxup0qxpqhfuw9njhciuohucaqvdgvknz0b6dygirn+x8hvxab98ibvpjo6b2="" lr3gj9pkkrzrfzswifagd9+vwrfjm4faskwvg6engomyxixq6gjk8e+wn5onj5bbayeigiiebrplan2seg0ohsxpxp81fxbkxvdjuw7paqk1kho06fjftreexm4nwosxlobzvnhfv2yzluawl92="" tq3pqfqbbwwuxoklnv5xlb1e+0tb29fzit41+saoj4="" t2fmsmi1usmgq1g="" pd4h+lgv29ej9ids8emawwqkegiywdcwntyah29j9ga1srpsxs3fgwhk4r8iztmgmcja4t0d0r8nw79z1ty84gulvnypctzqljwwcrpqrvzuxilmjiyev8mtjgq612kqfgngstisssxxmfomhouwazcwtazzhjqj9idr+kfpcmoiekt4fk6hurkqehxajjsaxgt1yekk19dysnj8izd45hbimslc5ab="" hs39uzfzaj27gr27wb27pwxo3fkgisfyyiq6h="" ze+65bwadydi="" dz74iksdwbzsgdra2nr="" dhw4enlzxitybqsjwjcwreywa9iwavi="" xl5wvkznvp7rymtqs1zjqsyepfnskjeahyljp6agrqdt7nbmzbafy1exssea5obkomlrlx9ud2cn2+axw4oagxicmj+cxszgni4wvjb58mtyblbe6+vxr8fnn9+m1tbwohauvb0dgrkzagtrq3p6elcpjrf9hzh9drle8mxd63ve9chwa7sq6u51tuxqtu0dosbc3i4dd5clgdmgsenx37gpikx2vzpibg="" n1nflrtpksv2dnuvqmmfvohnesrozka3f5ie4ndjikzemclgscfqxj4motiblqk9lkwhkzjna8uxauhh+g7fbqzzjyqpvj9ssaeov0wtv="" fv3o7m5gfv374fx68x27dsbanomtunqamokxzquxdig4ere0rdmwq0ifaytrl6mliwekqhcf="" iz3pxoo1qryiainx999146qmneq+x="" dfzycuwlzg7d24kxzrumccgwtimqzscchqpx="" m0qp0iokckmhihr4til8gl5fmtrhb5xgjqakkana13ktwiwugw6xqcizi4azu5iiej5vjnf1uijem="" sf5bwghszjumbipszjsk0grgcdmwatsqkeijnfijyk3tup4="" x14gezak6jrcdeg="" ljhgqivkzdmzybhuctdgmcdtnom6xjrunixcg18rcqopvmpt7k2opljn4ixil1gxgkpwmqqsskt="" xsrpccoa5dt5zpzkq0t3cxqdwyfpmceekaicrhgzdesincy7orswowuujwt289dkuw5pnyxgs285ef="" 85zjuhq7f4o2lmwnc5atndcqeqz0ijsnjk0frdhgaupowojdccihmruyh5ed7y44jecutbijegmm0glh01kvis6ah3lepz48tildg7hgi3le="" yjn4coayebffggmrig0qkyxdxbkvkm4prqe7ew0ddeh0d6i4pxhrzl0z7lbkidkmbsu9yo4jeve0meeesknclqcfjhwtiqjoysbcpghblinxqtkmtydruzbumgb4rs0xkc4p9ptjemksw09e="" teqidizncdk8cbfqhfui9oecvusdd2ebjr3ny+yyxjjnfjmripxnirih0atyxip6pti2so1slwkii81d6mw1n4pxvv7qqk+t0que1xrhkjhtdimoggf5c+uy+gitkhdrfwoehtnfkpy8koo0xdpqddhbw7njljrrbvf2hdkjkkkbdolwav7s0trw0akgvvv9a2e7xblla6ligjfptveakv3ibgfq2w9eekpa5eevvuflf4mobxavhzgtqiul1wje="" fiuf6tnoirjkngfqcue5e="" pb1mqioie0icdqcgaldb5xcm3s6voxzyfkunfcc1niszccvkjrzsprhpfworbfrti4djsrkaqcp1mbiazex5f40okobrfd2vqj1vkh+mhaufx4hff1+ehc8vrpkz5tepjsjttgxriui="" +ktpqi2nmife6nu4hjabvl9rb8p1wl53res9negmxsnfrbr7zbfjqnnzmjhv5zldmyn1d8v7s3uwxk="" vjmnbptvqkgq321gqvib6rz1wbvufuzpn6qqxinsy9uskxwxeelbjizwdu1src0l6dxqiatq3a8xfcrt4p9ukyusezqqvkcvepa08dularqocopuwbttxa06ntex1oux19hr5vx7qiwg1szir5birsto41faoysrkfn3iyqcze2hokjffxccanfqzuqvvjmn+ptw+cdoresuklnhpcilswvvrdury8pyi9cyy4zcdeuoywqusqs6acbgcplfi5uwsiopxdesi4otwempcobuaj4hij4veewny4ap3xu9uxj8="" jp2te3dpixjuhtmpugyxsdpuw+bfbhffnteikjo8ifburr4hadjhiqyjca4opd3h1rksmfbmmsfy+ncu1ct0qxpqdi3qvpvgygii5jjn="" tpiajkccxvvesqwrpb0nlvgpbufqsauynewtvc69povxq+ecwp+oj="" jypzviqphmg6aaebm8mghtgdw52hmt1zogrsilnznzzdkilcki2iwos9ikrrmpja7exxwuvxicmybiprgcrjero93xb6nbfzayfqdw0c7tfhqtyichf2ibbfweadt0fxqiece0waaammebdwkb4a4v0dj9b1brshypxbqwpqmdfq6xwiij="" sesh6r3dlt="" gyujjqkjejrhghihpfbqqmmptolgnngtyqyzqdh3bg+3="" fsarawu1dd4rxr8giksqqxflz5rj4fmlsejvi7dw+yuof6y8bamjgw="" cyezkwjos8cgecex2hnisbehosg77gtyqyzrwvys6xb0bj55qtxq+ecufthku8alnnxgnxwfunnqcggbat7cbbhiqk5kdlk9x2a="" ki61r09rdcq="" ixvj72bett="" srkyxdxbkvkm4prqe7ew0ddeh0d6i4p5hvyykoymwroyqwap5eogavqafu="" jnxxtrg9tyr6ejpgmvrqxfocvjriki9mbwha1gqnhrdm9buvpimjmrym3w+frh8lblcmsydpjevvykozaxekkffexqqrwp3rnxz2hfor8qo5gpvzokni="" fl+5dititdzddbk7xwup1itatcbdtd7xxdbgw+8dromhkklhgfjieijbra8ifcnxtf5evahekdevlhga4tvrb3b7sfb9oo9cbhztgy8jotfolnx2z222ps3nwm4pxijp4suusw="" 5qs2kj5e3qzhlq1pwprqtfabdrjyszefi4pxmsmitabzxjiwycwf+p8jp4suuywzagelgjtuafnwwtamzhgngaz9szewtgbpt+ex895pkje00hodyaixmghgupo="" fmn6h31ylrnwpzkq7eng81dzbrodqg0d2asbswql68mkpguq+4subjeb+tkfcz6n4yatdl2nx9l="" rt5km0v9ruerhq6mxeldvaieehf01ddwy49mtodisgxmbah+i+9tkmdqy5imlniuooueyubt1midc6c5di56i4rhrsdeaieek48mesz7kxe0cohgaieey48mhao8xaraqxeiblkapngemg6m0wqoga1nubji5cddzsuaez+vxidaxgikfgeenezcnzt8+df+1q6w2axhn+xptkzqipg1sqgrg5wuwglbsgqapyubcr4nulkbjg4nksgtle3iymja21tbuhpt4="" 17hcflb4lgi20z="" eywfgmvfubixcddgeqlqvyrydlbtq1awlpqeufgxgdceb4zucekmluamaolwnz9ixyk6xwevxo6mpcmjunfedwac4yicd9jo1sfkc8hkitbqokgp7tvoua6uub4mkgspldndoszpgbnzprba0uagy322e0ggubsp+u87jq2ypnrdmsj="" tmglzti4djsrigbigavj6zke+vqynn="" lhmrswq2bt3l66++moufhbcbrdj6tspwl58odxud6rekkhzgikaphxxum+kyy2nmife6rv2dgw2ex8ja88kqoglq3766adqfauvfrwynm0apv74y="" zwhz9ez2cnhnzwwui9ljgmbfiarkw7rvmfwojxn0ndsrnlyqrlbdihljga7m55fzzrzysqiaui5exlkc8v770+zcou1nxv4fhhh2cgqgkjnou8res87jnpwemjnb3jl0ekuvnmijsw9kyiimqosftbgzizm="" 3e73k50n7epucpkj6pbccaupowoc9clqbwlf2kqqjg8bjppgfgo5yim5yme1odtpna6ntk6+np8n4mqiasqh3yn3="" +or555bfce+21frdzuxilmjiyev8mtjgqrd0jiohwrvmslfg4z6rxzwvyim5xmddzctq0ymviymdngk7dtxbbt9+95557sglfimg3ef="" 993hccsf0xj948cdooommnhhggfjd737n93eulwsuv98afu3t7zgwyqkn71lc02mdeakgsbjqwohohzhgxky0jpddphnyznhsngaycdnzzdpx9a9="" hevxr4cxic8d64iqnsrjabb43gciij3nfdsrr6="" hmweeidlsujzzzdmwmuxbpz6bid7xpiiisn+cox5hbnbmwymhmxfuxeycobeppvggvvrqq977cnnzi="" wyphfcbokiipqlwcdyz3="" +e7t378bu3bsxfvz4afdpuko8rzc="" 5szqa+xt6nit7dehikocxgugoilq5szuuw1yvzo9jkre8yxrzzdmbllcxi4dwpe="" l4ov1fqgl09eqj0mvvwx2xciioocbiiufyesn9hacnr0yb4tu10ox9jt8rrdixnlfk6zrkskkwxekcr6lzfhs2sr4pucy8dygu4ioktcqisiql1uoqlj5ot0j4qmrewmicpd9+o5qccrkt4xekgoggm5idruymwygwz4wgu6iyj0iyeirc1wy038="" vfarfn+e0yam2wpchfojclsl4jveshypawmmdvxd50qo1hojqmvlzkhnpvscwlu5gkdrer6xuceos5obeplh96u9piolvdbwurwthex64gqeekvaxhslof6tiiish8yijdm+osxisii="" ef5jherecumaxeiiikkgqyirerefdmmriiiichmgigqerfrzdaqisiiophhiejereqxw0ceiiiiyoabcberecumaxeiiikkgqyirerefdmmriiiichmgigqerfrzdaqisiiophhiejereqxw0ceiiiiyoabcberecumaxeiiikkmary7warrz4iffqfrmz7x74hapj6+k+jnl8urgpprygothiieolc1z4q3lb5nnx85gp0kd0aaivrgq+n+xpwn7uazyvlmd5dikpkpb0i0rgqpvw44sursp3qdngud8xgm8xgm3quhmw="" tb3fe="" f7qnptfevdjkiexkceskcuowdlwyvr2nkig8eai8kck9eek9eeq8kkapjk+rvwblsjrsgx3lsislqmrih0qqahbh8f+rgkfcqzk2awgprunabmkxmkoudjwx+jpqemdjtkramngqirtju6g+hyugaabhig3g+aaqiclq8ljc7gao8eereabijeupwdnn07bcmghtwvigcaavatfdnj2dhepsiiaaxeihsrjk8em8bngbfgebqphogxjaigx9sdo9gigtkzujjxersdjakexkceskembiownbym2snzeela7xxdq3jhvby9qzzhjr+fzacuyz0riooztj5eolzwwiy="" m8fmdt3npkmsehretcj9mbsngn27mw8="" t9ps44iecwuqqzor9ww9vz2zgrkok2tdenp6bhehak4xcqqrbrnwry="" wvmvkaeyduacwhaitiw4mda7qkq0ae+hiiiikgyyibarevhmmbahiikimgegqkrerdhdqisiiihihoeiererxqwdesiiioozbijerequmwxeiiiikgy0xvlvrt7f3t4e4z0hiikiqknh7ubwkdf0iojwoaaaeyzmipgeeberubacdgcymjkg3ubti94piokdbw8ils0ndocdeyzmwiedb3s="" af57e3vcvfcgsd4v36s+jdj7brlr="" fk9hkyiayfdgfz8fbinw2ebalphxgg0yvz48qaag8eaaehpt9f9l0gvso8vskz3y="" eqt4n0xoheer98r8ebqsdexwrviiiiihkgikrerbqzcroiwk1wlf++hfarnda7engj9f6bxhq="" fk="" 6lejvfuis98v3gnmatlyliiiifyubhheiiilshwyirerefdmmriiiichmgigqerfrzggmelnvvvtw8sknizk5gwpgjpg5zf79+3heeechjsuf2dnzuommm+b2u4d9xpflhrtvvbhz2dlisunb+eefjy+="" dic7yb0w7duhcfg8pn3="" vvv+33cokwlhmz="" jw98i4p7hprjkycp2e+ls5co+xghbo655x7k5+fdbrdj7ty52llzz5t2ohr79+7f1vdfjclcqtjtdkydohxlly8f8xsbl5="" ty489hslcqthsnpswluktt94advs33ngdpawlsnlsmdjlctaswrolpq3dypurcekjjyitlq3jxo3dhrdeilq6umef4+83="" emnn0zpr0n3zz33dnnv3nzcyr8tj58r4lstmhgmuoggg3xuh0+f65tvvonzzjsp+fn5mbgm+nvf="" jbg="" ldb1bdeeahhhxccrfyrjjvuolz44ouj3lfnbcjutxsxxxqrrrvuop="" 3e71enhpooejs7ms2bdvw3hpp4yuxxsctt9467ppefppnephff="" hcc89h27zt6ojowlnnnguv1xujtxgsk08+gq0ndqp+fvcdh2dy5mk44yqthn1sexn5gme98sorudrr0bn33nsh7pf="" dbv96twr8fddd+o3v="" 0t3n="" fetm5ukss87qxy9iqz799fmoiokkigrs3lktv="" zll7fmzrrccccdiz5w65="" t888="" j5tvvhl33nknampqcnppp2hbggxyv3+="" z+337nmdb33rwzjttnnqu1odo+64azfddbneeogfko95cn544w3ccmmnepfdd7f582z4pb6cffbz6ozshpgxdxv1az7d6donr2gpr+9rx="" vagp3+6kop="" g4br58ralz="" vsd3ufmzzsbabdddngwj4uhz7wzsxozzs3cb3="" 7w5="" 3h9km="" utf="" 8ill1yck664ajt27mavv1ybiy++go+9997odlzozlp160rgrsaq21955rvhnbpffx19721="" +tofhnvqfw1tbt6fq7w1vzjnzvhcc8="" 13lzfxy+mrqoorkwm+76hi9vtfupgjrp33nvvsntdeewv4oillojotoxrpemtxc9="" +cuat1curetm5opvq1b13tbd3s0ymjlemjvrirchkbv69wprwfg47dbx8nmednjj4tprrx1w2zhhhcowll3qc="" vbbrtnhhpmmqnuw7x4sfjgn74rsx2mhcnhjgga4o033vc7zzytwwqa0dlser0dc5ply5elwbnmbby9xj5xiyt40y9+jkzonsourff5f7x+rgdeiy++2hs91db14osvfuxl5qnumz9="" vrj00kthtx+a6rezyb="" +9s="" mmded+fn5vbfnnz8flpcl1dxvph9txv2nnp4enh322b235efny8amgxjnnxcivs+heumll9dy2ihfixanuo3wrvsxbtw4hh300fjhd3+ii0eorh4hw+cbbx5avlywzs+ejfvuu2="" yoyo9e="" bg0kfdaz5hq9wkm844q9ofoz9tbw3izmwcctstf7zutxvv1dudphmaopvss="" 1+jv="" 617+gbd9="" nx88meh6onpidi+hltbwxsabpqzlpsuic8vd="" pmzcowlvsivwth89lnnye="" px+fhyw49njl8cuxx="" jdvi+fq9vtxjpppiorrrqqd20zf+l1c1wf2qb6+6xh2w7htsby6nah5otkdlht7nixsfgsohtokn="" hwcwwjb07dsdtotk5fh+jbu8++stmz5+pcrmmdlvdggul8oyzz6kqqgoppfqq3n="" fzsvlchlckvpt0pzox="" 9cm899xy2bnmcjuuw4fe="" +hwuv="" 56v9urn9xgz1="" rn6mvn3="" +or555bfce+21w26n9c+2sberxq83qm="" e1284jychho8hjy2nedvxcbjc4jzbbsgpp56kgtnm+n0uly8ptzzxbf544qvs2labruvfmddvht58880o7m1ovv71r+ppp5="" gpk2bshbtwhw6dagnn3wympqafg6vh88vap72t7+htbv12bpaep5c+wu1tfx3wy+2hy7o6rv33hmpvqxymew277="" oh5ecpfuaoqystonrypcuuo7="" ll7="" epk2b8oc="" 3ne57="" kkkt6="" 3="" gjbk44yqtmgnsjlz88styuhbh6dsegmde649="" ope24qlizf27fh8+9vf7u0l8wfwzxatz9gxud7bgwcpory8hbdddbf+8imfdptylx22wwn2m="" g1va="" btwrjkiwora3ftm3bht2uqkgiruvfvdfnzjmdawco4mehh8tpp58e6d0clqulfvt+="" 8yzmzfnzhxmntovtz31fg655rafj4n3zxwqj4alfiwy0os+wdx="" rr6e0qzgoh2oaccyzmksxhrppcnum3ny5icekzc3d0hctetlc3p6eozeap0f43a70dlsmqbx5mirizj55jmdet3rcox9r1u3dllzwtj="" podfr28vdxmmjqjn332wdcpha3rfnbqbjddu3f7detujp1dhw4hly+v9="" yjr474="" ewjldj3e="" dgqzx55pmym2connjiiabfl5afrs="" z2dkwmuxdzosg+0xyc3n9bp+uldrsakovn954i1566sw8+eabgd9+fncp="" 8y3vofnnnkmanswwskpkzg5c6bf7168f64asg="" fprz22mvysgfd0i+nx8811dbv32c92ny4oofidny2srozw="" jcc+bmwx333yeghobef7h="" vofsfqtkc0t9fmy0tjsmm1mbn68grdffdeaokghar9="" dfwr14dlv0atrdvxwibdevw4xvf+x7mznpqr9fu1iqdbw4m+gjfy2g+65qaggdwu9+fhyxizc3f5s2buvjsakco577xxht44iehqtvhuqrm="" dbx1+pmm89eawkp1q1bb6mx+bhrwh62vlgsfpswlmlz5s34n="" 5n97bn2="" ejasuumdny+bmmyn="" omfa2775z="" irnoocgk73u0ccfw44034suxx8twrvtrwfgy0vpu1nro5vmlhsvlwq5du3daaaf5vd9ep9f+1q1bh3hjxugcc84j+rhx+lmg2qbomtmhmzdvhtcr="" c9="" np0j="" ajsnuno3379omamhqxysukkzqakmpqakrnty1wobxccce8ho+ymwogmddvnvjwww="" fa6+9jsaphy+wlfns+xxffvmlkcoqeu+9917vbddee60yp368eo2118shh34oysrkxkxzs4th44n6exzja6+9jgcitz75xof9ruvfysogduiiirwoh7j11lvfo++8i="" bs2so2bnki5syziwokckr7e3s0dzso77zzjnj44ydftu2n+okll8tzzz8v8vpzxfnnnz9gu="" 7vvqghvq1ajtiymssgdrverx99jl7zne+ivlw8tb9xieqsrwntpomysjlx5zdfioaght6="" ulxs33uueee2wwwtz75ppjkk0="" eztfflfjsustevxufeeisxbpuxhhffb3bf="" hffyi5ovn8+mc="" fp988ol48sknhdlsfn="" 9619j9rycct1114mmjayxdevwaz+f0+ns3wbwe="" 3ll38pxnzxrfgf="" xhfpzxx2lp0qucghjhhrdi8raccuutt4qtw7ekl774qrz77rvi3hppfwlpabr7xfver1dmndhr3h777upui+fp1efw9b5hafs2u="" v27rncbnamxnhffqnmwb399tvczdkjvatwiv27dolvq1ajpkqk8e67745qxzutifx55zucwjc="" lvu29g6zb98+cc455wi73s4ymzpfkivlrhd3d+="" 9e="" bsgfkyrq4uswtjepgzmsnsdrs499xzxf79+6p4zgl3ne98r5x88sl+7wcg1q1bj4qqwul0irppplscddrrwmw2i4ktj4orr7xss+9nvv1dlb7+9a+ljiwmybpzrffrkvi+flno7owcsf3="" 9yqeng62fplykzubk6xwqzj99npfrx99fow9d966det8fq8hnwpe62f76kopikmtjgmlxskop="" 74avnar7zysnhggwcm2h7r1q2ipkrewcwwmxnyzph4449hey+d5+="" z6="" 9hpxeh3jgatf16lrhs9ne2lfjxamnnipefvnl6o98cc655bkrl5cnzgazym="" pfwsxlhq7d+7svv8vn6tq06znaocoq6sbcl88f67qvopbf1deeauqira29ywzzujdxvwxv="" xffbuvcbpzli455piwbgegif6bvurerequzxezfzeiiij0h4eiererxqwdesiiioozbijerequmwxeiiiikgyyibarevhmmbahiikimgegqkrerdhdqisiiihihoeiererxqwdesiiioozbijerequm="" 8pc="" lm9wxfkj0aaaaasuvork5cyii=",
+      " text="" "<figure="" size="" 640x480="" with="" 1="" axes="">"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "#define data to plot\n",
+    "X = iris.data\n",
+    "y = iris.target\n",
+    "model = LinearDiscriminantAnalysis()\n",
+    "data_plot = model.fit(X, y).transform(X)\n",
+    "target_names = iris.target_names\n",
+    "\n",
+    "#create LDA plot\n",
+    "plt.figure()\n",
+    "colors = ['red', 'green', 'blue']\n",
+    "lw = 2\n",
+    "for color, i, target_name in zip(colors, [0, 1, 2], target_names):\n",
+    "    plt.scatter(data_plot[y == i, 0], data_plot[y == i, 1], alpha=.8, color=color,\n",
+    "                label=target_name)\n",
+    "\n",
+    "#add legend to plot\n",
+    "plt.legend(loc='best', shadow=False, scatterpoints=1)\n",
+    "\n",
+    "#display LDA plot\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "6b550f66",
+   "metadata": {},
+   "source": [
+    "# Análsis Discriminante Cuadrático\n",
+    "https://www.statology.org/quadratic-discriminant-analysis-in-python/"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "id": "fca47ca2",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.model_selection import RepeatedStratifiedKFold\n",
+    "from sklearn.model_selection import cross_val_score\n",
+    "from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis \n",
+    "from sklearn import datasets\n",
+    "import matplotlib.pyplot as plt\n",
+    "import pandas as pd\n",
+    "import numpy as np"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "id": "804c1b2d",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped="">\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "\n",
+       "  \n",
+       "    \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "    \n",
+       "  \n",
+       "  \n",
+       "    \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "    \n",
+       "    \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "    \n",
+       "    \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "    \n",
+       "    \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "    \n",
+       "    \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "      \n",
+       "    \n",
+       "  \n",
+       "<table border="\&quot;1\&quot;" class="\&quot;dataframe\&quot;"><thead><tr style="\&quot;text-align:" right;\"=""><th></th><th>s_length</th><th>s_width</th><th>p_length</th><th>p_width</th><th>target</th><th>species</th></tr></thead><tbody><tr><th>0</th><td>5.1</td><td>3.5</td><td>1.4</td><td>0.2</td><td>0.0</td><td>setosa</td></tr><tr><th>1</th><td>4.9</td><td>3.0</td><td>1.4</td><td>0.2</td><td>0.0</td><td>setosa</td></tr><tr><th>2</th><td>4.7</td><td>3.2</td><td>1.3</td><td>0.2</td><td>0.0</td><td>setosa</td></tr><tr><th>3</th><td>4.6</td><td>3.1</td><td>1.5</td><td>0.2</td><td>0.0</td><td>setosa</td></tr><tr><th>4</th><td>5.0</td><td>3.6</td><td>1.4</td><td>0.2</td><td>0.0</td><td>setosa</td></tr></tbody></table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "   s_length  s_width  p_length  p_width  target species\n",
+       "0       5.1      3.5       1.4      0.2     0.0  setosa\n",
+       "1       4.9      3.0       1.4      0.2     0.0  setosa\n",
+       "2       4.7      3.2       1.3      0.2     0.0  setosa\n",
+       "3       4.6      3.1       1.5      0.2     0.0  setosa\n",
+       "4       5.0      3.6       1.4      0.2     0.0  setosa"
+      ]
+     },
+     "execution_count": 19,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#load iris dataset\n",
+    "iris = datasets.load_iris()\n",
+    "\n",
+    "#convert dataset to pandas DataFrame\n",
+    "df = pd.DataFrame(data = np.c_[iris['data'], iris['target']],\n",
+    "                 columns = iris['feature_names'] + ['target'])\n",
+    "df['species'] = pd.Categorical.from_codes(iris.target, iris.target_names)\n",
+    "df.columns = ['s_length', 's_width', 'p_length', 'p_width', 'target', 'species']\n",
+    "\n",
+    "#view first six rows of DataFrame\n",
+    "df.head()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 20,
+   "id": "67f16440",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "['setosa', 'versicolor', 'virginica']\n",
+       "Categories (3, object): ['setosa', 'versicolor', 'virginica']"
+      ]
+     },
+     "execution_count": 20,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df['species'].unique()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "id": "9acb08b2",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<style>#sk-container-id-3 {color: black;background-color: white;}#sk-container-id-3 pre{padding: 0;}#sk-container-id-3 div.sk-toggleable {background-color: white;}#sk-container-id-3 label.sk-toggleable__label {cursor: pointer;display: block;width: 100%;margin-bottom: 0;padding: 0.3em;box-sizing: border-box;text-align: center;}#sk-container-id-3 label.sk-toggleable__label-arrow:before {content: \"▸\";float: left;margin-right: 0.25em;color: #696969;}#sk-container-id-3 label.sk-toggleable__label-arrow:hover:before {color: black;}#sk-container-id-3 div.sk-estimator:hover label.sk-toggleable__label-arrow:before {color: black;}#sk-container-id-3 div.sk-toggleable__content {max-height: 0;max-width: 0;overflow: hidden;text-align: left;background-color: #f0f8ff;}#sk-container-id-3 div.sk-toggleable__content pre {margin: 0.2em;color: black;border-radius: 0.25em;background-color: #f0f8ff;}#sk-container-id-3 input.sk-toggleable__control:checked~div.sk-toggleable__content {max-height: 200px;max-width: 100%;overflow: auto;}#sk-container-id-3 input.sk-toggleable__control:checked~label.sk-toggleable__label-arrow:before {content: \"▾\";}#sk-container-id-3 div.sk-estimator input.sk-toggleable__control:checked~label.sk-toggleable__label {background-color: #d4ebff;}#sk-container-id-3 div.sk-label input.sk-toggleable__control:checked~label.sk-toggleable__label {background-color: #d4ebff;}#sk-container-id-3 input.sk-hidden--visually {border: 0;clip: rect(1px 1px 1px 1px);clip: rect(1px, 1px, 1px, 1px);height: 1px;margin: -1px;overflow: hidden;padding: 0;position: absolute;width: 1px;}#sk-container-id-3 div.sk-estimator {font-family: monospace;background-color: #f0f8ff;border: 1px dotted black;border-radius: 0.25em;box-sizing: border-box;margin-bottom: 0.5em;}#sk-container-id-3 div.sk-estimator:hover {background-color: #d4ebff;}#sk-container-id-3 div.sk-parallel-item::after {content: \"\";width: 100%;border-bottom: 1px solid gray;flex-grow: 1;}#sk-container-id-3 div.sk-label:hover label.sk-toggleable__label {background-color: #d4ebff;}#sk-container-id-3 div.sk-serial::before {content: \"\";position: absolute;border-left: 1px solid gray;box-sizing: border-box;top: 0;bottom: 0;left: 50%;z-index: 0;}#sk-container-id-3 div.sk-serial {display: flex;flex-direction: column;align-items: center;background-color: white;padding-right: 0.2em;padding-left: 0.2em;position: relative;}#sk-container-id-3 div.sk-item {position: relative;z-index: 1;}#sk-container-id-3 div.sk-parallel {display: flex;align-items: stretch;justify-content: center;background-color: white;position: relative;}#sk-container-id-3 div.sk-item::before, #sk-container-id-3 div.sk-parallel-item::before {content: \"\";position: absolute;border-left: 1px solid gray;box-sizing: border-box;top: 0;bottom: 0;left: 50%;z-index: -1;}#sk-container-id-3 div.sk-parallel-item {display: flex;flex-direction: column;z-index: 1;position: relative;background-color: white;}#sk-container-id-3 div.sk-parallel-item:first-child::after {align-self: flex-end;width: 50%;}#sk-container-id-3 div.sk-parallel-item:last-child::after {align-self: flex-start;width: 50%;}#sk-container-id-3 div.sk-parallel-item:only-child::after {width: 0;}#sk-container-id-3 div.sk-dashed-wrapped {border: 1px dashed gray;margin: 0 0.4em 0.5em 0.4em;box-sizing: border-box;padding-bottom: 0.4em;background-color: white;}#sk-container-id-3 div.sk-label label {font-family: monospace;font-weight: bold;display: inline-block;line-height: 1.2em;}#sk-container-id-3 div.sk-label-container {text-align: center;}#sk-container-id-3 div.sk-container {/* jupyter's `normalize.less` sets `[hidden] { display: none; }` but bootstrap.min.css set `[hidden] { display: none !important; }` so we also need the `!important` here to be able to override the default hidden behavior on the sphinx rendered scikit-learn.org. See: https://github.com/scikit-learn/scikit-learn/issues/21755 */display: inline-block !important;position: relative;}#sk-container-id-3 div.sk-text-repr-fallback {display: none;}</style><div id="\&quot;sk-container-id-3\&quot;" class="\&quot;sk-top-container\&quot;"><div class="\&quot;sk-text-repr-fallback\&quot;"><pre>QuadraticDiscriminantAnalysis()</pre><b>In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. <br>On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.</b></div><div class="\&quot;sk-container\&quot;" hidden=""><div class="\&quot;sk-item\&quot;"><div class="\&quot;sk-estimator" sk-toggleable\"=""><input class="\&quot;sk-toggleable__control" sk-hidden--visually\"="" id="\&quot;sk-estimator-id-3\&quot;" type="\&quot;checkbox\&quot;" checked="checked"><label for="\&quot;sk-estimator-id-3\&quot;" class="\&quot;sk-toggleable__label" sk-toggleable__label-arrow\"="">QuadraticDiscriminantAnalysis</label><div class="\&quot;sk-toggleable__content\&quot;"><pre>QuadraticDiscriminantAnalysis()</pre></div></div></div></div></div>"
+      ],
+      "text/plain": [
+       "QuadraticDiscriminantAnalysis()"
+      ]
+     },
+     "execution_count": 21,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#define predictor and response variables\n",
+    "X = df[['s_length', 's_width', 'p_length', 'p_width']]\n",
+    "y = df['species']\n",
+    "\n",
+    "#Fit the QDA model\n",
+    "model = QuadraticDiscriminantAnalysis()\n",
+    "model.fit(X, y)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "id": "919bd3a8",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "0.9733333333333334\n"
+     ]
+    }
+   ],
+   "source": [
+    "#Define method to evaluate model\n",
+    "cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, 
+random_state=1)\n",
+    "\n",
+    "#evaluate model\n",
+    "scores = cross_val_score(model, X, y, scoring='accuracy', cv=cv, 
+n_jobs=-1)\n",
+    "print(np.mean(scores))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "id": "5e8a996e",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      
+"C:\\Users\\DELL\\anaconda3\\Lib\\site-packages\\sklearn\\base.py:439: 
+UserWarning: X does not have valid feature names, but 
+QuadraticDiscriminantAnalysis was fitted with feature names\n",
+      "  warnings.warn(\n"
+     ]
+    },
+    {
+     "data": {
+      "text/plain": [
+       "array(['versicolor'], dtype=object)"
+      ]
+     },
+     "execution_count": 23,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#define new observation\n",
+    "new = [55, 3, 10, .4]\n",
+    "\n",
+    "#predict which class the new observation belongs to\n",
+    "model.predict([new])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "57d8cdb0",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
+</u10')"></body></html>

@@ -1,0 +1,38 @@
+# Ignorar archivos de entorno y dependencias
+env/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.swp
+*.bak
+*.tmp
+.DS_Store
+
+# Ignorar videos en todas las carpetas
+*.mp4
+
+# Ignorar archivos .txt en la carpeta clases y subcarpetas
+clases/**/*.txt
+
+# Ignorar archivos de Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Ignorar archivos de configuración de VSCode
+.vscode/
+
+# Ignorar archivos de autostart y scripts temporales
+/tmp/
+*.sh
+
+# Ignorar archivos PDF grandes y presentaciones
+*.pdf
+
+# Permitir los archivos de código y datos relevantes
+!scripts/*.py
+!bayes-ingenuo/scripts/*.py
+!clase-02/scripts/*.py
+!clase-03/scripts/*.py
+!bayes-ingenuo/datos/**/*.csv
+!clase-02/Datos/**/*.csv
+!clase-03/*.csv
