@@ -1,0 +1,249 @@
+{
+    "@graph": [
+        {
+            "@id": "http://publications.europa.eu/resource/authority/file-type/JSON",
+            "@type": "dct:MediaTypeOrExtent"
+        },
+        {
+            "@id": "http://data.europa.eu/88u/distribution/25dcfc26-4607-4a26-9b15-c1aa97ed2989",
+            "dct:title": [
+                {
+                    "@language": "pt-t-en-t0-mtec",
+                    "@value": "Casos de COVID-19 em todo o mundo"
+                },
+                {
+                    "@language": "en",
+                    "@value": "COVID-19 cases worldwide"
+                },
+                {
+                    "@language": "fi-t-en-t0-mtec",
+                    "@value": "Covid-19-tapaukset maailmanlaajuisesti"
+                },
+                {
+                    "@language": "it-t-en-t0-mtec",
+                    "@value": "Casi di COVID-19 in tutto il mondo"
+                },
+                {
+                    "@language": "lv-t-en-t0-mtec",
+                    "@value": "Covid-19 gadījumi visā pasaulē"
+                },
+                {
+                    "@language": "ro-t-en-t0-mtec",
+                    "@value": "Cazuri de COVID-19 la nivel mondial"
+                },
+                {
+                    "@language": "hu-t-en-t0-mtec",
+                    "@value": "Covid19-esetek világszerte"
+                },
+                {
+                    "@language": "et-t-en-t0-mtec",
+                    "@value": "COVID-19 juhtumid kogu maailmas"
+                },
+                {
+                    "@language": "sk-t-en-t0-mtec",
+                    "@value": "Prípady COVID-19 na celom svete"
+                },
+                {
+                    "@language": "ga-t-en-t0-mtec",
+                    "@value": "Cásanna COVID-19 ar fud an domhain"
+                },
+                {
+                    "@language": "es-t-en-t0-mtec",
+                    "@value": "Casos de COVID-19 en todo el mundo"
+                },
+                {
+                    "@language": "fr-t-en-t0-mtec",
+                    "@value": "Cas de COVID-19 dans le monde entier"
+                },
+                {
+                    "@language": "hr-t-en-t0-mtec",
+                    "@value": "Slučajevi bolesti COVID-19 diljem svijeta"
+                },
+                {
+                    "@language": "lt-t-en-t0-mtec",
+                    "@value": "COVID-19 atvejai visame pasaulyje"
+                },
+                {
+                    "@language": "el-t-en-t0-mtec",
+                    "@value": "Κρούσματα COVID-19 παγκοσμίως"
+                },
+                {
+                    "@language": "de-t-en-t0-mtec",
+                    "@value": "COVID-19-Fälle weltweit"
+                },
+                {
+                    "@language": "cs-t-en-t0-mtec",
+                    "@value": "Případy COVID-19 po celém světě"
+                },
+                {
+                    "@language": "nl-t-en-t0-mtec",
+                    "@value": "COVID-19-gevallen wereldwijd"
+                },
+                {
+                    "@language": "sl-t-en-t0-mtec",
+                    "@value": "Primeri COVID-19 po vsem svetu"
+                },
+                {
+                    "@language": "bg-t-en-t0-mtec",
+                    "@value": "Случаи на COVID-19 в световен мащаб"
+                },
+                {
+                    "@language": "da-t-en-t0-mtec",
+                    "@value": "Covid-19-tilfælde på verdensplan"
+                },
+                {
+                    "@language": "mt-t-en-t0-mtec",
+                    "@value": "Każijiet tal-COVID-19 madwar id-dinja"
+                },
+                {
+                    "@language": "sv-t-en-t0-mtec",
+                    "@value": "Covid-19-fall över hela världen"
+                },
+                {
+                    "@language": "pl-t-en-t0-mtec",
+                    "@value": "Przypadki COVID-19 na całym świecie"
+                }
+            ],
+            "adms:status": {
+                "@id": "http://purl.org/adms/status/Deprecated"
+            },
+            "dct:description": [
+                {
+                    "@language": "fi-t-en-t0-mtec",
+                    "@value": "Tiedot covid-19-tapausten maantieteellisestä jakautumisesta maailmanlaajuisesti"
+                },
+                {
+                    "@language": "ro-t-en-t0-mtec",
+                    "@value": "Date privind distribuția geografică a cazurilor de COVID-19 la nivel mondial"
+                },
+                {
+                    "@language": "de-t-en-t0-mtec",
+                    "@value": "Daten zur geografischen Verteilung von COVID-19-Fällen weltweit"
+                },
+                {
+                    "@language": "lt-t-en-t0-mtec",
+                    "@value": "Duomenys apie COVID-19 atvejų geografinį pasiskirstymą visame pasaulyje"
+                },
+                {
+                    "@language": "pl-t-en-t0-mtec",
+                    "@value": "Dane dotyczące geograficznego rozmieszczenia przypadków COVID-19 na całym świecie"
+                },
+                {
+                    "@language": "sv-t-en-t0-mtec",
+                    "@value": "Uppgifter om den geografiska fördelningen av covid-19-fall över hela världen"
+                },
+                {
+                    "@language": "nl-t-en-t0-mtec",
+                    "@value": "Gegevens over de geografische spreiding van COVID-19-gevallen wereldwijd"
+                },
+                {
+                    "@language": "mt-t-en-t0-mtec",
+                    "@value": "Data dwar id-distribuzzjoni ġeografika tal-każijiet tal-COVID-19 madwar id-dinja"
+                },
+                {
+                    "@language": "da-t-en-t0-mtec",
+                    "@value": "Data om den geografiske fordeling af covid-19-tilfælde på verdensplan"
+                },
+                {
+                    "@language": "sl-t-en-t0-mtec",
+                    "@value": "Podatki o geografski porazdelitvi primerov COVID-19 po svetu"
+                },
+                {
+                    "@language": "hr-t-en-t0-mtec",
+                    "@value": "Podaci o geografskoj rasprostranjenosti slučajeva bolesti COVID-19 diljem svijeta"
+                },
+                {
+                    "@language": "el-t-en-t0-mtec",
+                    "@value": "Δεδομένα σχετικά με τη γεωγραφική κατανομή των κρουσμάτων COVID-19 παγκοσμίως"
+                },
+                {
+                    "@language": "es-t-en-t0-mtec",
+                    "@value": "Datos sobre la distribución geográfica de los casos de COVID-19 en todo el mundo"
+                },
+                {
+                    "@language": "hu-t-en-t0-mtec",
+                    "@value": "A Covid19-esetek földrajzi eloszlására vonatkozó adatok világszerte"
+                },
+                {
+                    "@language": "et-t-en-t0-mtec",
+                    "@value": "Andmed COVID-19 juhtumite geograafilise jaotuse kohta kogu maailmas"
+                },
+                {
+                    "@language": "ga-t-en-t0-mtec",
+                    "@value": "Sonraí maidir le dáileadh geografach cásanna COVID-19 ar fud an domhain"
+                },
+                {
+                    "@language": "fr-t-en-t0-mtec",
+                    "@value": "Données sur la répartition géographique des cas de COVID-19 dans le monde"
+                },
+                {
+                    "@language": "en",
+                    "@value": "Data on the geographic distribution of COVID-19 cases worldwide"
+                },
+                {
+                    "@language": "sk-t-en-t0-mtec",
+                    "@value": "Údaje o geografickom rozložení prípadov ochorenia COVID-19 na celom svete"
+                },
+                {
+                    "@language": "lv-t-en-t0-mtec",
+                    "@value": "Dati par Covid-19 gadījumu ģeogrāfisko izplatību visā pasaulē"
+                },
+                {
+                    "@language": "cs-t-en-t0-mtec",
+                    "@value": "Údaje o zeměpisném rozložení případů COVID-19 po celém světě"
+                },
+                {
+                    "@language": "it-t-en-t0-mtec",
+                    "@value": "Dati sulla distribuzione geografica dei casi di COVID-19 a livello mondiale"
+                },
+                {
+                    "@language": "pt-t-en-t0-mtec",
+                    "@value": "Dados sobre a distribuição geográfica dos casos de COVID-19 em todo o mundo"
+                },
+                {
+                    "@language": "bg-t-en-t0-mtec",
+                    "@value": "Данни за географското разпределение на случаите на COVID-19 в световен мащаб"
+                }
+            ],
+            "dcat:accessURL": {
+                "@id": "https://opendata.ecdc.europa.eu/covid19/casedistribution/json"
+            },
+            "dct:format": {
+                "@id": "http://publications.europa.eu/resource/authority/file-type/JSON"
+            },
+            "dct:identifier": "http://data.europa.eu/88u/distribution/ce379c1d-066a-4de8-a195-1d5e8338142a",
+            "dcat:downloadURL": {
+                "@id": "https://opendata.ecdc.europa.eu/covid19/casedistribution/json"
+            },
+            "dct:license": {
+                "@id": "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"
+            },
+            "dct:rights": {
+                "@id": "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+            },
+            "dct:type": {
+                "@id": "http://publications.europa.eu/resource/authority/distribution-type/DOWNLOADABLE_FILE"
+            },
+            "@type": "dcat:Distribution"
+        },
+        {
+            "@id": "http://purl.org/adms/status/Deprecated",
+            "@type": "skos:Concept"
+        },
+        {
+            "@id": "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0",
+            "@type": "dct:LicenseDocument"
+        },
+        {
+            "@id": "http://publications.europa.eu/resource/authority/access-right/PUBLIC",
+            "@type": "dct:RightsStatement"
+        }
+    ],
+    "@context": {
+        "skos": "http://www.w3.org/2004/02/skos/core#",
+        "dct": "http://purl.org/dc/terms/",
+        "adms": "http://www.w3.org/ns/adms#",
+        "dcat": "http://www.w3.org/ns/dcat#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    }
+}

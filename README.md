@@ -28,17 +28,44 @@ pip install -r clase-03/requirements.txt
 - `scripts/`: App principal y utilidades
 - `clases/`: Material multimedia y textos (no se suben al repo)
 
-## Ejecución de la app principal
 
-La app principal se encuentra en `scripts/app_integrado.py` y permite correr los tres algoritmos desde una sola interfaz.
+## Ejecución de la app principal (versión interactiva Streamlit)
 
-Para ejecutarla:
+La app principal se encuentra en `scripts/app_integrado.py` y permite correr los tres algoritmos desde una sola interfaz didáctica e interactiva.
+
+### 1. Instala las dependencias necesarias
+
+Desde la raíz del proyecto, asegúrate de tener activado tu entorno virtual y ejecuta:
 
 ```bash
-python scripts/app_integrado.py
+pip install streamlit scikit-learn matplotlib seaborn pandas numpy plotly
 ```
 
-Sigue las instrucciones en pantalla para seleccionar el algoritmo y el dataset.
+### 2. Ejecuta la app con Streamlit
+
+Desde la raíz del proyecto:
+
+```bash
+streamlit run scripts/app_integrado.py
+```
+
+Esto abrirá la app en tu navegador. Si no se abre automáticamente, copia la URL que aparece en la terminal.
+
+### 3. ¿Qué puedes hacer en la app?
+
+- Elegir entre Análisis Discriminante (LDA/QDA/Bayes Ingenuo) y Reducción de Dimensiones (PCA)
+- Subir tu propio archivo CSV o usar los datasets de ejemplo
+- Visualizar y comparar resultados de PCA con y sin escalado
+- Ver comparativas didácticas entre PCA y SVD
+- Explorar visualizaciones interactivas 2D/3D y flechas de componentes principales
+- Recibir interpretaciones automáticas y recomendaciones sobre tus datos
+
+### 4. Requisitos adicionales
+
+- Para visualizaciones 3D y FAQ interactivo, asegúrate de tener `plotly` instalado.
+- Si tienes problemas con dependencias, revisa los mensajes de error en la terminal y ejecuta `pip install` para instalar los paquetes faltantes.
+
+---
 
 ## Ejecución de scripts individuales
 
