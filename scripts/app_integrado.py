@@ -4,15 +4,327 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 from sklearn.model_selection import cross_val_score
-from sklearn.metrics import confusion_matrix
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import (
+    confusion_matrix, classification_report, accuracy_score, 
+    precision_score, recall_score, f1_score, roc_curve, auc,
+    roc_auc_score, mean_squared_error, mean_absolute_error, r2_score
+)
+from sklearn.preprocessing import StandardScaler, label_binarize
 from sklearn.decomposition import PCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-st.title("Análisis Integrado: Discriminante (LDA/QDA) y PCA")
+# Función para calcular métricas de evaluación completas
+def calcular_metricas_clasificacion(y_true, y_pred, y_prob=None, class_names=None):
+    """
+    Calcula todas las métricas de evaluación para clasificación
+    
+    Args:
+        y_true: Etiquetas verdaderas
+        y_pred: Predicciones del modelo
+        y_prob: Probabilidades predichas (opcional, para ROC)
+        class_names: Nombres de las clases (opcional)
+    
+    Returns:
+        dict: Diccionario con todas las métricas
+    """
+    metricas = {}
+    
+    # Métricas básicas
+    metricas['accuracy'] = accuracy_score(y_true, y_pred)
+    metricas['precision_macro'] = precision_score(y_true, y_pred, average='macro', zero_division=0)
+    metricas['recall_macro'] = recall_score(y_true, y_pred, average='macro', zero_division=0)
+    metricas['f1_macro'] = f1_score(y_true, y_pred, average='macro', zero_division=0)
+    
+    # Métricas por clase
+    precision_per_class = precision_score(y_true, y_pred, average=None, zero_division=0)
+    recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
+    f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
+    
+    metricas['precision_per_class'] = precision_per_class
+    metricas['recall_per_class'] = recall_per_class
+    metricas['f1_per_class'] = f1_per_class
+    
+    # Matriz de confusión
+    cm = confusion_matrix(y_true, y_pred)
+    metricas['confusion_matrix'] = cm
+    
+    # ROC-AUC (si se proporcionan probabilidades)
+    if y_prob is not None:
+        try:
+            classes = np.unique(y_true)
+            if len(classes) == 2:
+                # Clasificación binaria
+                metricas['roc_auc'] = roc_auc_score(y_true, y_prob[:, 1])
+            else:
+                # Clasificación multiclase
+                y_true_bin = label_binarize(y_true, classes=classes)
+                metricas['roc_auc'] = roc_auc_score(y_true_bin, y_prob, multi_class='ovr', average='macro')
+        except:
+            metricas['roc_auc'] = None
+    
+    # Nombres de clases
+    if class_names is None:
+        class_names = [f"Clase {i}" for i in np.unique(y_true)]
+    metricas['class_names'] = class_names
+    
+    return metricas
 
-# Selección de tipo de análisis
-analisis = st.sidebar.selectbox("Selecciona el tipo de análisis", ["Discriminante (LDA/QDA)", "Reducción de dimensiones (PCA)"])
+def mostrar_metricas_clasificacion(metricas, titulo="Métricas de Evaluación"):
+    """
+    Muestra las métricas de clasificación en Streamlit de forma organizada
+    """
+    st.write(f"### {titulo}")
+    
+    # Métricas generales en columnas
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Accuracy", f"{metricas['accuracy']:.3f}")
+    with col2:
+        st.metric("Precision (Macro)", f"{metricas['precision_macro']:.3f}")
+    with col3:
+        st.metric("Recall (Macro)", f"{metricas['recall_macro']:.3f}")
+    with col4:
+        st.metric("F1-Score (Macro)", f"{metricas['f1_macro']:.3f}")
+    
+    if metricas.get('roc_auc') is not None:
+        st.metric("ROC-AUC", f"{metricas['roc_auc']:.3f}")
+    
+    # Tabla detallada por clase
+    st.write("#### Métricas por clase")
+    
+    tabla_metricas = pd.DataFrame({
+        'Clase': metricas['class_names'],
+        'Precision': [f"{p:.3f}" for p in metricas['precision_per_class']],
+        'Recall': [f"{r:.3f}" for r in metricas['recall_per_class']],
+        'F1-Score': [f"{f:.3f}" for f in metricas['f1_per_class']]
+    })
+    
+    st.dataframe(tabla_metricas, use_container_width=True)
+    
+    # Interpretaciones automáticas
+    with st.expander("💡 Interpretación de las métricas"):
+        st.markdown(f"""
+        **Accuracy ({metricas['accuracy']:.3f})**: Proporción de predicciones correctas del total.
+        {'✅ Excelente' if metricas['accuracy'] > 0.9 else '✅ Buena' if metricas['accuracy'] > 0.8 else '⚠️ Regular' if metricas['accuracy'] > 0.7 else '❌ Necesita mejora'}
+        
+        **Precision (Macro) ({metricas['precision_macro']:.3f})**: Promedio de precisión por clase. 
+        Indica qué tan exactas son las predicciones positivas.
+        {'✅ Excelente' if metricas['precision_macro'] > 0.9 else '✅ Buena' if metricas['precision_macro'] > 0.8 else '⚠️ Regular' if metricas['precision_macro'] > 0.7 else '❌ Necesita mejora'}
+        
+        **Recall (Macro) ({metricas['recall_macro']:.3f})**: Promedio de sensibilidad por clase.
+        Indica qué tan bien el modelo encuentra los casos positivos reales.
+        {'✅ Excelente' if metricas['recall_macro'] > 0.9 else '✅ Buena' if metricas['recall_macro'] > 0.8 else '⚠️ Regular' if metricas['recall_macro'] > 0.7 else '❌ Necesita mejora'}
+        
+        **F1-Score (Macro) ({metricas['f1_macro']:.3f})**: Media armónica entre precision y recall.
+        Balancea ambas métricas.
+        {'✅ Excelente' if metricas['f1_macro'] > 0.9 else '✅ Buena' if metricas['f1_macro'] > 0.8 else '⚠️ Regular' if metricas['f1_macro'] > 0.7 else '❌ Necesita mejora'}
+        """)
+
+def visualizar_matriz_confusion_mejorada(cm, class_names, titulo="Matriz de Confusión"):
+    """
+    Crea una visualización mejorada de la matriz de confusión
+    """
+    # Calcular porcentajes
+    cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+    
+    # Crear figura con subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    
+    # Matriz de confusión con valores absolutos
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax1,
+                xticklabels=class_names, yticklabels=class_names)
+    ax1.set_title('Matriz de Confusión (Valores Absolutos)')
+    ax1.set_xlabel('Predicción')
+    ax1.set_ylabel('Real')
+    
+    # Matriz de confusión con porcentajes
+    sns.heatmap(cm_percent, annot=True, fmt='.1f', cmap='Oranges', ax=ax2,
+                xticklabels=class_names, yticklabels=class_names)
+    ax2.set_title('Matriz de Confusión (Porcentajes)')
+    ax2.set_xlabel('Predicción')
+    ax2.set_ylabel('Real')
+    
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # Interpretación automática
+    diagonal_sum = np.trace(cm)
+    total_sum = np.sum(cm)
+    accuracy = diagonal_sum / total_sum
+    
+    st.write("#### Interpretación de la matriz de confusión:")
+    st.write(f"- **Accuracy**: {accuracy:.3f} ({diagonal_sum}/{total_sum} predicciones correctas)")
+    
+    # Identificar clases con mayor confusión
+    cm_no_diag = cm.copy()
+    np.fill_diagonal(cm_no_diag, 0)
+    max_confusion = np.unravel_index(np.argmax(cm_no_diag), cm_no_diag.shape)
+    
+    if cm_no_diag[max_confusion] > 0:
+        st.write(f"- **Mayor confusión**: {class_names[max_confusion[0]]} confundida con {class_names[max_confusion[1]]} ({cm_no_diag[max_confusion]} casos)")
+
+def crear_curvas_roc_interactivas(y_true, y_prob, class_names):
+    """
+    Crea curvas ROC interactivas con Plotly
+    """
+    fig = go.Figure()
+    
+    if len(class_names) == 2:
+        # Clasificación binaria
+        fpr, tpr, _ = roc_curve(y_true, y_prob[:, 1])
+        roc_auc = auc(fpr, tpr)
+        
+        # Curva ROC
+        fig.add_trace(go.Scatter(
+            x=fpr, y=tpr,
+            mode='lines',
+            name=f'ROC (AUC = {roc_auc:.3f})',
+            line=dict(color='darkorange', width=3),
+            hovertemplate='FPR: %{x:.3f}<br>TPR: %{y:.3f}<extra></extra>'
+        ))
+        
+        # Línea diagonal
+        fig.add_trace(go.Scatter(
+            x=[0, 1], y=[0, 1],
+            mode='lines',
+            name='Clasificador aleatorio',
+            line=dict(color='navy', dash='dash', width=2),
+            hovertemplate='Línea de referencia<extra></extra>'
+        ))
+        
+    else:
+        # Clasificación multiclase
+        y_bin = label_binarize(y_true, classes=np.unique(y_true))
+        colors = px.colors.qualitative.Set1
+        
+        for i, class_name in enumerate(class_names):
+            fpr, tpr, _ = roc_curve(y_bin[:, i], y_prob[:, i])
+            roc_auc = auc(fpr, tpr)
+            
+            fig.add_trace(go.Scatter(
+                x=fpr, y=tpr,
+                mode='lines',
+                name=f'{class_name} (AUC = {roc_auc:.3f})',
+                line=dict(color=colors[i % len(colors)], width=3),
+                hovertemplate=f'{class_name}<br>FPR: %{{x:.3f}}<br>TPR: %{{y:.3f}}<extra></extra>'
+            ))
+        
+        # Línea diagonal
+        fig.add_trace(go.Scatter(
+            x=[0, 1], y=[0, 1],
+            mode='lines',
+            name='Clasificador aleatorio',
+            line=dict(color='black', dash='dash', width=2),
+            hovertemplate='Línea de referencia<extra></extra>'
+        ))
+    
+    fig.update_layout(
+        title='Curvas ROC Interactivas',
+        xaxis_title='Tasa de Falsos Positivos (FPR)',
+        yaxis_title='Tasa de Verdaderos Positivos (TPR)',
+        width=800,
+        height=600,
+        hovermode='closest'
+    )
+    
+    return fig
+
+def calcular_metricas_regresion(y_true, y_pred, titulo="Métricas de Regresión"):
+    """
+    Calcula y muestra métricas para problemas de regresión
+    """
+    metricas = {}
+    metricas['mse'] = mean_squared_error(y_true, y_pred)
+    metricas['rmse'] = np.sqrt(metricas['mse'])
+    metricas['mae'] = mean_absolute_error(y_true, y_pred)
+    metricas['r2'] = r2_score(y_true, y_pred)
+    
+    # Mostrar métricas
+    st.write(f"### {titulo}")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("R² Score", f"{metricas['r2']:.3f}")
+    with col2:
+        st.metric("RMSE", f"{metricas['rmse']:.3f}")
+    with col3:
+        st.metric("MAE", f"{metricas['mae']:.3f}")
+    with col4:
+        st.metric("MSE", f"{metricas['mse']:.3f}")
+    
+    # Interpretaciones
+    with st.expander("💡 Interpretación de métricas de regresión"):
+        st.markdown(f"""
+        **R² Score ({metricas['r2']:.3f})**: Proporción de varianza explicada por el modelo.
+        - 1.0 = Perfecto ajuste
+        - 0.0 = Modelo no mejor que predecir la media
+        - <0.0 = Modelo peor que predecir la media
+        {'✅ Excelente' if metricas['r2'] > 0.9 else '✅ Bueno' if metricas['r2'] > 0.7 else '⚠️ Regular' if metricas['r2'] > 0.5 else '❌ Pobre'}
+        
+        **RMSE ({metricas['rmse']:.3f})**: Error cuadrático medio. Mismas unidades que la variable objetivo.
+        Penaliza más los errores grandes.
+        
+        **MAE ({metricas['mae']:.3f})**: Error absoluto medio. Mismas unidades que la variable objetivo.
+        Menos sensible a valores atípicos que RMSE.
+        
+        **MSE ({metricas['mse']:.3f})**: Error cuadrático medio. Unidades al cuadrado.
+        Base matemática para RMSE.
+        """)
+    
+    # Gráfico de valores reales vs predichos
+    fig_reg, ax_reg = plt.subplots(figsize=(8, 6))
+    ax_reg.scatter(y_true, y_pred, alpha=0.6)
+    ax_reg.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'r--', lw=2)
+    ax_reg.set_xlabel('Valores Reales')
+    ax_reg.set_ylabel('Valores Predichos')
+    ax_reg.set_title('Valores Reales vs Predichos')
+    ax_reg.grid(True, alpha=0.3)
+    
+    # Añadir línea de mejor ajuste
+    z = np.polyfit(y_true, y_pred, 1)
+    p = np.poly1d(z)
+    ax_reg.plot(y_true, p(y_true), "b--", alpha=0.8, linewidth=1, label=f'Ajuste lineal')
+    ax_reg.legend()
+    
+    st.pyplot(fig_reg)
+    
+    # Gráfico de residuos
+    residuos = y_true - y_pred
+    fig_res, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    
+    # Residuos vs predichos
+    ax1.scatter(y_pred, residuos, alpha=0.6)
+    ax1.axhline(y=0, color='r', linestyle='--')
+    ax1.set_xlabel('Valores Predichos')
+    ax1.set_ylabel('Residuos')
+    ax1.set_title('Residuos vs Valores Predichos')
+    ax1.grid(True, alpha=0.3)
+    
+    # Histograma de residuos
+    ax2.hist(residuos, bins=20, alpha=0.7, edgecolor='black')
+    ax2.set_xlabel('Residuos')
+    ax2.set_ylabel('Frecuencia')
+    ax2.set_title('Distribución de Residuos')
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    st.pyplot(fig_res)
+    
+    return metricas
+
+
+# NUEVO: Título y selección de tipo de análisis (ahora incluye Bayes Ingenuo)
+st.title("Análisis Integrado: Discriminante (LDA/QDA), Bayes Ingenuo y PCA")
+analisis = st.sidebar.selectbox(
+    "Selecciona el tipo de análisis",
+    ["Discriminante (LDA/QDA)", "Bayes Ingenuo", "Reducción de dimensiones (PCA)"]
+)
 
 carpeta_datos = os.path.join(os.path.dirname(__file__), '..', 'datos')
 archivos_csv = [f for f in os.listdir(carpeta_datos) if f.endswith('.csv')] if os.path.exists(carpeta_datos) else []
@@ -32,7 +344,191 @@ if df is not None:
     st.write("### Vista previa del dataset")
     st.dataframe(df.head())
 
-    if analisis == "Discriminante (LDA/QDA)":
+    # ================= VISTA DEDICADA: BAYES INGENUO =================
+    if analisis == "Bayes Ingenuo":
+        st.header("Clasificación Bayes Ingenuo")
+        with st.expander("¿Qué es Bayes Ingenuo? (Explicación teórica, práctica y predicción por clase)", expanded=True):
+            st.markdown(r'''
+**Bayes Ingenuo** es un algoritmo de clasificación supervisada basado en el Teorema de Bayes, con el supuesto de que las características son independientes entre sí dado la clase.
+
+**Teorema de Bayes:**
+$$
+P(C|X) = \frac{P(X|C) \cdot P(C)}{P(X)}
+$$
+
+- $P(C|X)$: Probabilidad de la clase $C$ dado los atributos $X$.
+- $P(X|C)$: Probabilidad de observar $X$ si la clase es $C$.
+- $P(C)$: Probabilidad previa de la clase $C$.
+- $P(X)$: Probabilidad de observar $X$.
+
+**Supuesto ingenuo:**
+$$
+P(X|C) = \prod_{i=1}^n P(x_i|C)
+$$
+Esto simplifica el cálculo, aunque en la práctica las variables pueden estar correlacionadas.
+
+**¿Cómo funciona?**
+1. Calcula la probabilidad previa de cada clase y la probabilidad condicional de cada atributo dado la clase.
+2. Para una nueva observación, multiplica las probabilidades y elige la clase con mayor probabilidad posterior.
+
+**Ventajas:**
+- Muy rápido y eficiente.
+- Funciona bien incluso con pocos datos.
+- Fácil de implementar.
+
+**Desventajas:**
+- El supuesto de independencia rara vez se cumple totalmente.
+- No modela relaciones entre variables.
+
+**Aplicaciones:**
+- Clasificación de correos (spam/no spam), análisis de sentimientos, diagnóstico médico, etc.
+
+''')
+        # Selección de variables igual que en LDA/QDA
+        max_unique_target = 20
+        columnas = df.columns.tolist()
+        num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
+        cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or pd.api.types.is_categorical_dtype(df[c]) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
+        if not cat_cols:
+            st.error("No hay columnas válidas para usar como variable de clase (target). Elige un dataset con una columna categórica o entera con pocos valores únicos.")
+        else:
+            target_col = st.selectbox("Selecciona la columna de clase (target):", cat_cols, index=max(0, len(cat_cols)-1), key="target_bayes")
+            feature_cols = st.multiselect(
+                "Selecciona las columnas de atributos (features):",
+                [c for c in num_cols if c != target_col],
+                default=[c for c in num_cols if c != target_col],
+                key="features_bayes"
+            )
+            if feature_cols and target_col:
+                X = df[feature_cols]
+                y = df[target_col]
+                if X.isnull().values.any():
+                    st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
+                    X = X.fillna(X.mean())
+                from sklearn.naive_bayes import GaussianNB
+                model = GaussianNB()
+                model.fit(X, y)
+                # Predicción interactiva
+                st.write("### Ingresa una observación para predecir la clase")
+                col1, col2 = st.columns([2,1])
+                with col2:
+                    if st.button("Cargar ejemplo aleatorio", key="btn_cargar_ejemplo_bayes"):
+                        ejemplo = df[feature_cols].sample(1).iloc[0].to_dict()
+                        for col in feature_cols:
+                            st.session_state[f"input_{col}_bayes"] = float(ejemplo[col])
+                        st.rerun()
+                nueva_obs = []
+                for col in feature_cols:
+                    minv = float(df[col].min())
+                    maxv = float(df[col].max())
+                    meanv = float(df[col].mean())
+                    col3, col4 = st.columns([3,2])
+                    with col3:
+                        val = st.number_input(f"{col}", min_value=minv, max_value=maxv, value=st.session_state.get(f"input_{col}_bayes", meanv), key=f"input_{col}_bayes")
+                        nueva_obs.append(val)
+                    with col4:
+                        st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
+                nueva_obs = [nueva_obs]
+                prediccion = model.predict(nueva_obs)
+                probas = model.predict_proba(nueva_obs)[0]
+                class_names = [str(c) for c in model.classes_]
+                # Botón solo para feedback visual, pero la predicción es reactiva
+                st.button("Predecir clase", key="btn_pred_bayes")
+                # Visualización y lógica siempre activas
+                st.success(f"Predicción: **{prediccion[0]}**")
+                st.write("#### Probabilidades por clase para la observación ingresada:")
+                # Tabla de probabilidades
+                df_proba = pd.DataFrame({
+                    'Clase': class_names,
+                    'Probabilidad': [f"{p:.3f}" for p in probas]
+                })
+                st.dataframe(df_proba, use_container_width=True)
+                # Gráfico de barras
+                import plotly.graph_objects as go
+                fig_proba = go.Figure(go.Bar(
+                    x=class_names,
+                    y=probas,
+                    marker_color='royalblue',
+                    text=[f"{p:.2%}" for p in probas],
+                    textposition='auto'))
+                fig_proba.update_layout(
+                    title="Probabilidad de pertenencia a cada clase",
+                    xaxis_title="Clase",
+                    yaxis_title="Probabilidad",
+                    yaxis=dict(range=[0,1]),
+                    width=600, height=400
+                )
+                st.plotly_chart(fig_proba, use_container_width=True)
+                # Interpretación automática
+                max_idx = int(np.argmax(probas))
+                max_prob = probas[max_idx]
+                if max_prob > 0.9:
+                    st.info(f"El modelo está **muy seguro** de que la observación pertenece a la clase **{class_names[max_idx]}** (probabilidad {max_prob:.1%}).")
+                elif max_prob > 0.7:
+                    st.warning(f"El modelo predice la clase **{class_names[max_idx]}** con **confianza moderada** (probabilidad {max_prob:.1%}).")
+                else:
+                    st.error(f"La predicción es **incierta**: la clase más probable es **{class_names[max_idx]}** pero con baja confianza ({max_prob:.1%}). Revisa las probabilidades por clase.")
+                # Umbral de decisión interactivo
+                with st.expander("⚙️ Opcional: Ajustar umbral de decisión"):
+                    st.markdown("Puedes modificar el umbral mínimo de probabilidad para asignar una clase. Si ninguna clase supera el umbral, la predicción se considera incierta.")
+                    threshold = st.slider("Umbral mínimo de probabilidad", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="thresh_bayes")
+                    clases_superan = [(c, p) for c, p in zip(class_names, probas) if p >= threshold]
+                    if len(clases_superan) == 0:
+                        st.error(f"Con umbral {threshold:.2f}, **ninguna clase supera el umbral**. La predicción es incierta.")
+                    elif len(clases_superan) == 1:
+                        st.success(f"Con umbral {threshold:.2f}, la clase predicha es **{clases_superan[0][0]}** (probabilidad {clases_superan[0][1]:.1%}).")
+                    else:
+                        st.warning(f"Con umbral {threshold:.2f}, varias clases superan el umbral: " + ", ".join([f"{c} ({p:.1%})" for c, p in clases_superan]))
+                # ======== EVALUACIÓN COMPLETA DEL MODELO ========
+                st.write("## 📊 Evaluación del Modelo")
+                y_pred = model.predict(X)
+                y_prob = None
+                try:
+                    if hasattr(model, 'predict_proba'):
+                        y_prob = model.predict_proba(X)
+                except:
+                    y_prob = None
+                class_names = [str(c) for c in model.classes_]
+                metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
+                mostrar_metricas_clasificacion(metricas, "Métricas de Bayes Ingenuo")
+                st.write("### 🎯 Matriz de Confusión Detallada")
+                visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names)
+                if y_prob is not None and len(class_names) > 1:
+                    st.write("### Curvas ROC (si hay probabilidades disponibles)")
+                    fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names)
+                    st.plotly_chart(fig_roc, use_container_width=True)
+                with st.expander("📋 Reporte de Clasificación Completo"):
+                    st.text(classification_report(y, y_pred, target_names=class_names, zero_division=0))
+                # Gráfico de barras de métricas por clase
+                st.write("### 📊 Rendimiento por Clase")
+                fig_class, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+                x = np.arange(len(class_names))
+                width = 0.25
+                ax1.bar(x - width, metricas['precision_per_class'], width, label='Precision', alpha=0.8)
+                ax1.bar(x, metricas['recall_per_class'], width, label='Recall', alpha=0.8)
+                ax1.bar(x + width, metricas['f1_per_class'], width, label='F1-Score', alpha=0.8)
+                ax1.set_xlabel('Clases')
+                ax1.set_ylabel('Score')
+                ax1.set_title('Métricas por Clase')
+                ax1.set_xticks(x)
+                ax1.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
+                ax1.legend()
+                ax1.grid(True, alpha=0.3)
+                class_counts = pd.Series(y).value_counts().sort_index()
+                ax2.bar(range(len(class_counts)), class_counts.values, alpha=0.7, color='skyblue')
+                ax2.set_xlabel('Clases')
+                ax2.set_ylabel('Número de muestras')
+                ax2.set_title('Distribución de clases en el dataset')
+                ax2.set_xticks(range(len(class_names)))
+                ax2.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
+                ax2.grid(True, alpha=0.3)
+                for i, v in enumerate(class_counts.values):
+                    ax2.text(i, v, str(v), ha='center', va='bottom', fontsize=9)
+                plt.tight_layout()
+                st.pyplot(fig_class)
+                st.info("Puedes comparar el rendimiento de Bayes Ingenuo con LDA/QDA seleccionando el mismo dataset en las otras vistas.")
+    # ================= FIN VISTA BAYES INGENUO =================
+    elif analisis == "Discriminante (LDA/QDA)":
         st.header("Clasificación Discriminante (LDA/QDA)")
         with st.expander("¿Qué es LDA y QDA? (Explicación teórica)"):
             st.markdown("""
@@ -111,22 +607,404 @@ if df is not None:
                     st.write(f"Algoritmo usado: {algoritmo}")
                     if algoritmo == "Bayes Ingenuo":
                         st.info("Bayes Ingenuo (Naive Bayes) es un clasificador probabilístico basado en la regla de Bayes y la independencia entre atributos.")
+                # ======== EVALUACIÓN COMPLETA DEL MODELO ========
+                st.write("## 📊 Evaluación del Modelo")
+                
+                # Predicciones
+                y_pred = model.predict(X)
+                
+                # Obtener probabilidades si es posible
+                y_prob = None
+                try:
+                    if hasattr(model, 'predict_proba'):
+                        y_prob = model.predict_proba(X)
+                    elif hasattr(model, 'decision_function'):
+                        # Para modelos como SVM que usan decision_function
+                        decision_scores = model.decision_function(X)
+                        if decision_scores.ndim == 1:
+                            # Clasificación binaria
+                            y_prob = np.column_stack([1-decision_scores, decision_scores])
+                        else:
+                            # Clasificación multiclase - convertir a probabilidades aproximadas
+                            from scipy.special import softmax
+                            y_prob = softmax(decision_scores, axis=1)
+                except:
+                    y_prob = None
+                
+                # Calcular todas las métricas
+                class_names = [str(c) for c in model.classes_]
+                metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
+                
+                # Mostrar métricas principales
+                mostrar_metricas_clasificacion(metricas, f"Métricas de {algoritmo}")
+                
+                # Validación cruzada
+                st.write("### 🔄 Validación Cruzada")
                 min_samples_per_class = y.value_counts().min()
                 cv_splits = min(5, min_samples_per_class) if min_samples_per_class >= 2 else None
+                
                 if cv_splits and cv_splits >= 2:
-                    scores = cross_val_score(model, X, y, scoring='accuracy', cv=cv_splits)
-                    st.write(f"Precisión promedio ({algoritmo}, cv={cv_splits}): {np.mean(scores):.2f}")
+                    # Múltiples métricas con validación cruzada
+                    cv_scores = {}
+                    for metric_name, metric_str in [('Accuracy', 'accuracy'), 
+                                                   ('Precision', 'precision_macro'), 
+                                                   ('Recall', 'recall_macro'), 
+                                                   ('F1-Score', 'f1_macro')]:
+                        scores = cross_val_score(model, X, y, scoring=metric_str, cv=cv_splits)
+                        cv_scores[metric_name] = scores
+                    
+                    # Mostrar resultados de CV en columnas
+                    col1, col2, col3, col4 = st.columns(4)
+                    cols = [col1, col2, col3, col4]
+                    
+                    for i, (metric_name, scores) in enumerate(cv_scores.items()):
+                        with cols[i]:
+                            st.metric(
+                                f"{metric_name} (CV={cv_splits})",
+                                f"{np.mean(scores):.3f}",
+                                f"±{np.std(scores):.3f}"
+                            )
+                    
+                    # Gráfico de distribución de scores de CV
+                    st.write("#### Distribución de scores en validación cruzada")
+                    fig_cv, ax_cv = plt.subplots(figsize=(10, 6))
+                    
+                    positions = np.arange(len(cv_scores))
+                    box_data = [scores for scores in cv_scores.values()]
+                    
+                    bp = ax_cv.boxplot(box_data, positions=positions, patch_artist=True)
+                    ax_cv.set_xticklabels(cv_scores.keys())
+                    ax_cv.set_ylabel('Score')
+                    ax_cv.set_title(f'Distribución de métricas - Validación Cruzada (CV={cv_splits})')
+                    ax_cv.grid(True, alpha=0.3)
+                    
+                    # Colorear las cajas
+                    colors = ['lightblue', 'lightgreen', 'lightcoral', 'lightyellow']
+                    for patch, color in zip(bp['boxes'], colors):
+                        patch.set_facecolor(color)
+                    
+                    st.pyplot(fig_cv)
+                    
                 else:
                     st.warning("No se puede calcular validación cruzada porque alguna clase tiene menos de 2 muestras.")
-                st.write("### Matriz de confusión")
-                y_pred = model.predict(X)
-                cm = confusion_matrix(y, y_pred)
-                fig, ax = plt.subplots()
-                import seaborn as sns
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
-                ax.set_xlabel('Predicción')
-                ax.set_ylabel('Real')
-                st.pyplot(fig)
+                
+                # Matriz de confusión mejorada
+                st.write("### 🎯 Matriz de Confusión Detallada")
+                visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names)
+                
+                # Curvas ROC (si hay probabilidades disponibles)
+                if y_prob is not None and len(class_names) > 1:
+                    st.write("### 📈 Curvas ROC")
+                    
+                    # Preparar datos para ROC
+                    if len(class_names) == 2:
+                        # Clasificación binaria
+                        fpr, tpr, _ = roc_curve(y, y_prob[:, 1])
+                        roc_auc = auc(fpr, tpr)
+                        
+                        fig_roc, ax_roc = plt.subplots(figsize=(8, 6))
+                        ax_roc.plot(fpr, tpr, color='darkorange', lw=2, 
+                                   label=f'ROC curve (AUC = {roc_auc:.3f})')
+                        ax_roc.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+                        ax_roc.set_xlim([0.0, 1.0])
+                        ax_roc.set_ylim([0.0, 1.05])
+                        ax_roc.set_xlabel('Tasa de Falsos Positivos')
+                        ax_roc.set_ylabel('Tasa de Verdaderos Positivos')
+                        ax_roc.set_title('Curva ROC - Clasificación Binaria')
+                        ax_roc.legend(loc="lower right")
+                        ax_roc.grid(True, alpha=0.3)
+                        st.pyplot(fig_roc)
+                        
+                    else:
+                        # Clasificación multiclase - ROC para cada clase vs resto
+                        y_bin = label_binarize(y, classes=model.classes_)
+                        
+                        fig_roc, ax_roc = plt.subplots(figsize=(10, 8))
+                        colors = plt.cm.Set1(np.linspace(0, 1, len(class_names)))
+                        
+                        for i, (class_name, color) in enumerate(zip(class_names, colors)):
+                            fpr, tpr, _ = roc_curve(y_bin[:, i], y_prob[:, i])
+                            roc_auc = auc(fpr, tpr)
+                            ax_roc.plot(fpr, tpr, color=color, lw=2,
+                                       label=f'{class_name} (AUC = {roc_auc:.3f})')
+                        
+                        ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
+                        ax_roc.set_xlim([0.0, 1.0])
+                        ax_roc.set_ylim([0.0, 1.05])
+                        ax_roc.set_xlabel('Tasa de Falsos Positivos')
+                        ax_roc.set_ylabel('Tasa de Verdaderos Positivos')
+                        ax_roc.set_title('Curvas ROC - Clasificación Multiclase (One-vs-Rest)')
+                        ax_roc.legend(loc="lower right")
+                        ax_roc.grid(True, alpha=0.3)
+                        st.pyplot(fig_roc)
+                    
+                    # Interpretación del AUC
+                    if metricas.get('roc_auc'):
+                        auc_val = metricas['roc_auc']
+                        st.write("#### Interpretación del AUC:")
+                        if auc_val >= 0.9:
+                            st.success(f"🎉 AUC = {auc_val:.3f} - Excelente capacidad discriminativa")
+                        elif auc_val >= 0.8:
+                            st.success(f"✅ AUC = {auc_val:.3f} - Buena capacidad discriminativa")
+                        elif auc_val >= 0.7:
+                            st.warning(f"⚠️ AUC = {auc_val:.3f} - Capacidad discriminativa aceptable")
+                        elif auc_val >= 0.6:
+                            st.warning(f"⚠️ AUC = {auc_val:.3f} - Capacidad discriminativa pobre")
+                        else:
+                            st.error(f"❌ AUC = {auc_val:.3f} - Capacidad discriminativa muy pobre")
+                
+                # Reporte de clasificación detallado
+                with st.expander("📋 Reporte de Clasificación Completo"):
+                    report = classification_report(y, y_pred, target_names=class_names, output_dict=True)
+                    report_df = pd.DataFrame(report).transpose()
+                    
+                    # Formatear números
+                    for col in ['precision', 'recall', 'f1-score']:
+                        if col in report_df.columns:
+                            report_df[col] = report_df[col].apply(lambda x: f"{x:.3f}" if pd.notnull(x) else "")
+                    
+                    if 'support' in report_df.columns:
+                        report_df['support'] = report_df['support'].apply(lambda x: f"{int(x)}" if pd.notnull(x) else "")
+                    
+                    st.dataframe(report_df, use_container_width=True)
+                
+                # Comparación de rendimiento por clase
+                st.write("### 📊 Rendimiento por Clase")
+                fig_class, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+                
+                # Gráfico de barras de métricas por clase
+                x = np.arange(len(class_names))
+                width = 0.25
+                
+                ax1.bar(x - width, metricas['precision_per_class'], width, label='Precision', alpha=0.8)
+                ax1.bar(x, metricas['recall_per_class'], width, label='Recall', alpha=0.8)
+                ax1.bar(x + width, metricas['f1_per_class'], width, label='F1-Score', alpha=0.8)
+                
+                ax1.set_xlabel('Clases')
+                ax1.set_ylabel('Score')
+                ax1.set_title('Métricas por Clase')
+                ax1.set_xticks(x)
+                ax1.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
+                ax1.legend()
+                ax1.grid(True, alpha=0.3)
+                
+                # Gráfico de soporte (cantidad de muestras por clase)
+                class_counts = pd.Series(y).value_counts().sort_index()
+                ax2.bar(range(len(class_counts)), class_counts.values, alpha=0.7, color='skyblue')
+                ax2.set_xlabel('Clases')
+                ax2.set_ylabel('Número de muestras')
+                ax2.set_title('Distribución de clases en el dataset')
+                ax2.set_xticks(range(len(class_names)))
+                ax2.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
+                ax2.grid(True, alpha=0.3)
+                
+                # Agregar valores en las barras
+                for i, v in enumerate(class_counts.values):
+                    ax2.text(i, v + max(class_counts.values) * 0.01, str(v), 
+                            ha='center', va='bottom')
+                
+                plt.tight_layout()
+                st.pyplot(fig_class)
+                
+                # ======== COMPARACIÓN DE MODELOS ========
+                st.write("## ⚖️ Comparación de Algoritmos Estudiados")
+                
+                if st.checkbox("Ejecutar comparación de algoritmos estudiados (LDA, QDA, Bayes Ingenuo)"):
+                    with st.spinner("Comparando algoritmos..."):
+                        # Lista de algoritmos a comparar
+                        algoritmos_comparar = {
+                            'LDA': LinearDiscriminantAnalysis(),
+                            'QDA': QuadraticDiscriminantAnalysis(),
+                            'Bayes Ingenuo': None  # Se define abajo
+                        }
+                        
+                        # Agregar Bayes Ingenuo
+                        from sklearn.naive_bayes import GaussianNB
+                        algoritmos_comparar['Bayes Ingenuo'] = GaussianNB()
+                        
+                        # Resultados de comparación
+                        resultados_comparacion = {}
+                        
+                        # Comparar cada algoritmo
+                        for nombre, modelo in algoritmos_comparar.items():
+                            try:
+                                # Entrenar modelo
+                                modelo.fit(X, y)
+                                y_pred_comp = modelo.predict(X)
+                                
+                                # Obtener probabilidades
+                                y_prob_comp = None
+                                try:
+                                    if hasattr(modelo, 'predict_proba'):
+                                        y_prob_comp = modelo.predict_proba(X)
+                                except:
+                                    pass
+                                
+                                # Calcular métricas
+                                metricas_comp = calcular_metricas_clasificacion(y, y_pred_comp, y_prob_comp, class_names)
+                                
+                                # Validación cruzada si es posible
+                                cv_accuracy = None
+                                if cv_splits and cv_splits >= 2:
+                                    try:
+                                        cv_scores = cross_val_score(modelo, X, y, cv=cv_splits, scoring='accuracy')
+                                        cv_accuracy = np.mean(cv_scores)
+                                    except:
+                                        pass
+                                
+                                # Guardar resultados
+                                resultados_comparacion[nombre] = {
+                                    'accuracy': metricas_comp['accuracy'],
+                                    'precision': metricas_comp['precision_macro'],
+                                    'recall': metricas_comp['recall_macro'],
+                                    'f1': metricas_comp['f1_macro'],
+                                    'roc_auc': metricas_comp.get('roc_auc', None),
+                                    'cv_accuracy': cv_accuracy
+                                }
+                                
+                            except Exception as e:
+                                st.warning(f"Error al evaluar {nombre}: {str(e)}")
+                                continue
+                        
+                        # Mostrar tabla comparativa
+                        if resultados_comparacion:
+                            st.write("### 📋 Tabla Comparativa de Algoritmos")
+                            
+                            # Crear DataFrame para la comparación
+                            df_comparacion = pd.DataFrame(resultados_comparacion).T
+                            
+                            # Formatear números
+                            for col in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'cv_accuracy']:
+                                if col in df_comparacion.columns:
+                                    df_comparacion[col] = df_comparacion[col].apply(
+                                        lambda x: f"{x:.3f}" if pd.notnull(x) else "N/A"
+                                    )
+                            
+                            # Renombrar columnas para mejor presentación
+                            columnas_nombres = {
+                                'accuracy': 'Accuracy',
+                                'precision': 'Precision',
+                                'recall': 'Recall',
+                                'f1': 'F1-Score',
+                                'roc_auc': 'ROC-AUC',
+                                'cv_accuracy': f'CV Accuracy ({cv_splits}-fold)' if cv_splits else 'CV Accuracy'
+                            }
+                            
+                            df_comparacion = df_comparacion.rename(columns=columnas_nombres)
+                            
+                            # Destacar el mejor modelo para cada métrica
+                            def highlight_best(s):
+                                if s.name == 'ROC-AUC' or 'CV Accuracy' in s.name or s.name in ['Accuracy', 'Precision', 'Recall', 'F1-Score']:
+                                    # Convertir a float para comparar, ignorando N/A
+                                    numeric_values = []
+                                    indices = []
+                                    for i, val in enumerate(s):
+                                        try:
+                                            if val != "N/A":
+                                                numeric_values.append(float(val))
+                                                indices.append(i)
+                                        except:
+                                            continue
+                                    
+                                    if numeric_values:
+                                        max_val = max(numeric_values)
+                                        max_idx = indices[numeric_values.index(max_val)]
+                                        colors = [''] * len(s)
+                                        colors[max_idx] = 'background-color: lightgreen'
+                                        return colors
+                                return [''] * len(s)
+                            
+                            # Aplicar formato
+                            styled_df = df_comparacion.style.apply(highlight_best, axis=0)
+                            st.dataframe(styled_df, use_container_width=True)
+                            
+                            # Gráfico comparativo
+                            st.write("### 📊 Comparación Visual de Algoritmos")
+                            
+                            # Convertir datos para el gráfico
+                            metricas_para_grafico = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
+                            datos_grafico = {}
+                            
+                            for metrica in metricas_para_grafico:
+                                if metrica in df_comparacion.columns:
+                                    datos_grafico[metrica] = []
+                                    for algoritmo in df_comparacion.index:
+                                        try:
+                                            val = df_comparacion.loc[algoritmo, metrica]
+                                            if val != "N/A":
+                                                datos_grafico[metrica].append(float(val))
+                                            else:
+                                                datos_grafico[metrica].append(0)
+                                        except:
+                                            datos_grafico[metrica].append(0)
+                            
+                            # Crear gráfico de barras comparativo
+                            fig_comp, ax_comp = plt.subplots(figsize=(12, 8))
+                            
+                            x = np.arange(len(df_comparacion.index))
+                            width = 0.2
+                            
+                            colors = ['skyblue', 'lightcoral', 'lightgreen', 'orange']
+                            
+                            for i, (metrica, valores) in enumerate(datos_grafico.items()):
+                                ax_comp.bar(x + i*width, valores, width, label=metrica, 
+                                           alpha=0.8, color=colors[i % len(colors)])
+                            
+                            ax_comp.set_xlabel('Algoritmos')
+                            ax_comp.set_ylabel('Score')
+                            ax_comp.set_title('Comparación de Algoritmos - Todas las Métricas')
+                            ax_comp.set_xticks(x + width * 1.5)
+                            ax_comp.set_xticklabels(df_comparacion.index, rotation=45, ha='right')
+                            ax_comp.legend()
+                            ax_comp.grid(True, alpha=0.3)
+                            ax_comp.set_ylim(0, 1.1)
+                            
+                            plt.tight_layout()
+                            st.pyplot(fig_comp)
+                            
+                            # Recomendaciones automáticas
+                            st.write("### 🎯 Recomendaciones")
+                            
+                            # Encontrar el mejor algoritmo por métrica
+                            recomendaciones = []
+                            
+                            for metrica in metricas_para_grafico:
+                                if metrica in df_comparacion.columns:
+                                    try:
+                                        # Convertir a numérico y encontrar el máximo
+                                        valores_numericos = {}
+                                        for algoritmo in df_comparacion.index:
+                                            val = df_comparacion.loc[algoritmo, metrica]
+                                            if val != "N/A":
+                                                valores_numericos[algoritmo] = float(val)
+                                        
+                                        if valores_numericos:
+                                            mejor_algoritmo = max(valores_numericos, key=valores_numericos.get)
+                                            mejor_valor = valores_numericos[mejor_algoritmo]
+                                            recomendaciones.append(f"**{metrica}**: {mejor_algoritmo} ({mejor_valor:.3f})")
+                                    except:
+                                        continue
+                            
+                            if recomendaciones:
+                                st.write("Mejores algoritmos por métrica:")
+                                for rec in recomendaciones:
+                                    st.write(f"- {rec}")
+                            
+                            # Recomendación general
+                            if 'Accuracy' in df_comparacion.columns:
+                                try:
+                                    accuracy_vals = {}
+                                    for algoritmo in df_comparacion.index:
+                                        val = df_comparacion.loc[algoritmo, 'Accuracy']
+                                        if val != "N/A":
+                                            accuracy_vals[algoritmo] = float(val)
+                                    
+                                    if accuracy_vals:
+                                        mejor_general = max(accuracy_vals, key=accuracy_vals.get)
+                                        st.success(f"🏆 **Recomendación general**: {mejor_general} tiene el mejor rendimiento global (Accuracy: {accuracy_vals[mejor_general]:.3f})")
+                                except:
+                                    pass
+                
                 st.write("### Visualización de separación de clases")
                 show_proj = st.checkbox("Mostrar gráfico de componentes discriminantes (proyección LDA/QDA)")
                 if show_proj:
@@ -391,60 +1269,497 @@ if df is not None:
             # Gráfico 2D o 3D según selección
             import plotly.express as px
             if idx_z is not None:
-                # Mejor visualización 3D interactiva con Plotly
+                # Visualización 3D mejorada e interactiva con Plotly
                 import plotly.graph_objects as go
+                from plotly.subplots import make_subplots
+                
+                # Opciones avanzadas de visualización 3D
+                st.write("#### 🎨 Opciones avanzadas de visualización 3D")
+                col1_3d, col2_3d, col3_3d, col4_3d = st.columns(4)
+                
+                with col1_3d:
+                    st.write("**Puntos**")
+                    marker_size = st.slider("Tamaño de puntos", 3, 15, 8, key="marker_size_3d")
+                    marker_opacity = st.slider("Transparencia", 0.1, 1.0, 0.8, 0.1, key="marker_opacity_3d")
+                
+                with col2_3d:
+                    st.write("**Ejes y rejilla**")
+                    show_grid = st.checkbox("Mostrar rejilla", True, key="show_grid_3d")
+                    show_axes = st.checkbox("Mostrar ejes", True, key="show_axes_3d")
+                
+                with col3_3d:
+                    st.write("**Colores**")
+                    color_scheme = st.selectbox("Esquema de colores", 
+                                              ["Plotly", "Viridis", "Plasma", "Inferno", "Set1", "Pastel"],
+                                              key="color_scheme_3d")
+                
+                with col4_3d:
+                    st.write("**Fondo**")
+                    background_style = st.selectbox("Estilo de fondo", 
+                                                   ["Claro", "Oscuro", "Neutro", "Científico"],
+                                                   key="background_style_3d")
+                    axis_style = st.selectbox("Estilo de ejes", 
+                                            ["Moderno", "Clásico", "Minimalista"],
+                                            key="axis_style_3d")
+                
+                # Configurar esquema de colores
+                if color_scheme == "Viridis":
+                    colors = px.colors.sequential.Viridis
+                elif color_scheme == "Plasma":
+                    colors = px.colors.sequential.Plasma
+                elif color_scheme == "Inferno":
+                    colors = px.colors.sequential.Inferno
+                elif color_scheme == "Set1":
+                    colors = px.colors.qualitative.Set1
+                elif color_scheme == "Pastel":
+                    colors = px.colors.qualitative.Pastel
+                else:  # Plotly default
+                    colors = px.colors.qualitative.Plotly
+                
+                # Configurar estilos de fondo
+                if background_style == "Oscuro":
+                    scene_bgcolor = 'rgba(45,55,72,1)'
+                    paper_bgcolor = 'rgba(26,32,44,1)'
+                    plot_bgcolor = 'rgba(45,55,72,1)'
+                    grid_color = 'rgba(203,213,224,0.3)'
+                    background_color = 'rgba(74,85,104,0.2)' if show_grid else 'rgba(45,55,72,0)'
+                    zeroline_color = 'rgba(203,213,224,0.6)'
+                    line_color = 'rgba(203,213,224,0.4)'
+                    font_color = '#E2E8F0'
+                    title_color = '#E2E8F0'
+                    tick_color = '#CBD5E0'
+                elif background_style == "Neutro":
+                    scene_bgcolor = 'rgba(247,250,252,1)'
+                    paper_bgcolor = 'rgba(255,255,255,1)'
+                    plot_bgcolor = 'rgba(247,250,252,1)'
+                    grid_color = 'rgba(148,163,184,0.4)'
+                    background_color = 'rgba(226,232,240,0.5)' if show_grid else 'rgba(255,255,255,0)'
+                    zeroline_color = 'rgba(71,85,105,0.7)'
+                    line_color = 'rgba(71,85,105,0.5)'
+                    font_color = '#374151'
+                    title_color = '#1F2937'
+                    tick_color = '#4B5563'
+                elif background_style == "Científico":
+                    scene_bgcolor = 'rgba(249,250,251,1)'
+                    paper_bgcolor = 'rgba(255,255,255,1)'
+                    plot_bgcolor = 'rgba(249,250,251,1)'
+                    grid_color = 'rgba(156,163,175,0.5)'
+                    background_color = 'rgba(243,244,246,0.8)' if show_grid else 'rgba(255,255,255,0)'
+                    zeroline_color = 'rgba(55,65,81,0.8)'
+                    line_color = 'rgba(55,65,81,0.6)'
+                    font_color = '#111827'
+                    title_color = '#111827'
+                    tick_color = '#374151'
+                else:  # Claro (default)
+                    scene_bgcolor = 'rgba(248,251,253,1)'
+                    paper_bgcolor = 'rgba(255,255,255,1)'
+                    plot_bgcolor = 'rgba(248,251,253,1)'
+                    grid_color = 'rgba(149,165,166,0.3)'
+                    background_color = 'rgba(248,249,250,0.8)' if show_grid else 'rgba(255,255,255,0)'
+                    zeroline_color = 'rgba(52,73,94,0.6)'
+                    line_color = 'rgba(52,73,94,0.4)'
+                    font_color = '#2C3E50'
+                    title_color = '#2E4057'
+                    tick_color = '#34495E'
+                
+                # Configurar estilos de ejes
+                if axis_style == "Clásico":
+                    axis_line_width = 3
+                    zeroline_width = 4
+                    grid_width = 2
+                    tick_font_size = 12
+                    title_font_size = 15
+                elif axis_style == "Minimalista":
+                    axis_line_width = 1
+                    zeroline_width = 2
+                    grid_width = 1
+                    tick_font_size = 10
+                    title_font_size = 13
+                else:  # Moderno (default)
+                    axis_line_width = 2
+                    zeroline_width = 3
+                    grid_width = 1
+                    tick_font_size = 11
+                    title_font_size = 14
+                
+                # Crear texto mejorado para hover
                 hover_text = []
                 for i in range(X_proj.shape[0]):
-                    txt = f"{comp_x}: {X_proj[i, idx_x]:.2f}<br>{comp_y}: {X_proj[i, idx_y]:.2f}<br>{comp_z}: {X_proj[i, idx_z]:.2f}"
+                    # Información básica de componentes
+                    txt = f"<b>Punto {i+1}</b><br>"
+                    txt += f"{comp_x}: <b>{X_proj[i, idx_x]:.3f}</b><br>"
+                    txt += f"{comp_y}: <b>{X_proj[i, idx_y]:.3f}</b><br>"
+                    txt += f"{comp_z}: <b>{X_proj[i, idx_z]:.3f}</b><br>"
+                    
+                    # Información de clase si está disponible
                     if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
-                        txt += f"<br>{class_col_pca}: {df[class_col_pca].iloc[i]}"
+                        txt += f"<br><b>{class_col_pca}:</b> {df[class_col_pca].iloc[i]}<br>"
+                    
+                    # Información adicional de variables originales más influyentes
+                    txt += "<br><b>Variables originales influyentes:</b><br>"
+                    # Calcular contribución de variables originales a este punto
+                    contribuciones = {}
+                    for j, var in enumerate(feature_cols_pca):
+                        contrib = (pca.components_[idx_x, j] * X_pca_scaled[i, j] + 
+                                 pca.components_[idx_y, j] * X_pca_scaled[i, j] + 
+                                 pca.components_[idx_z, j] * X_pca_scaled[i, j])
+                        contribuciones[var] = abs(contrib)
+                    
+                    # Top 3 variables más influyentes
+                    top_vars = sorted(contribuciones.items(), key=lambda x: x[1], reverse=True)[:3]
+                    for var, contrib in top_vars:
+                        txt += f"• {var}: {X_pca[var].iloc[i]:.2f}<br>"
+                    
                     hover_text.append(txt)
+                
+                # Crear visualización según si hay clases o no
+                data = []
                 if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
                     clases = pd.Categorical(df[class_col_pca]).categories
                     codigos = pd.Categorical(df[class_col_pca]).codes
-                    colors = px.colors.qualitative.Safe if len(clases) <= 10 else px.colors.qualitative.Light24
-                    data = []
+                    
                     for idx, clase in enumerate(clases):
                         puntos = codigos == idx
-                        data.append(go.Scatter3d(
-                            x=X_proj[puntos, idx_x],
-                            y=X_proj[puntos, idx_y],
-                            z=X_proj[puntos, idx_z],
-                            mode='markers',
-                            marker=dict(size=7, opacity=0.7, color=colors[idx % len(colors)]),
-                            name=str(clase),
-                            text=[hover_text[i] for i in range(len(hover_text)) if puntos[i]],
-                            hoverinfo='text'
-                        ))
+                        if np.any(puntos):  # Solo agregar si hay puntos de esta clase
+                            # Calcular estadísticas por clase
+                            n_puntos = np.sum(puntos)
+                            centroide_x = np.mean(X_proj[puntos, idx_x])
+                            centroide_y = np.mean(X_proj[puntos, idx_y])
+                            centroide_z = np.mean(X_proj[puntos, idx_z])
+                            
+                            data.append(go.Scatter3d(
+                                x=X_proj[puntos, idx_x],
+                                y=X_proj[puntos, idx_y],
+                                z=X_proj[puntos, idx_z],
+                                mode='markers',
+                                marker=dict(
+                                    size=marker_size,
+                                    opacity=marker_opacity,
+                                    color=colors[idx % len(colors)],
+                                    line=dict(width=0.5, color='darkgray')
+                                ),
+                                name=f'{clase} (n={n_puntos})',
+                                text=[hover_text[i] for i in range(len(hover_text)) if puntos[i]],
+                                hoverinfo='text',
+                                legendgroup=f'grupo_{idx}'
+                            ))
+                            
+                            # Agregar centroide de cada clase
+                            data.append(go.Scatter3d(
+                                x=[centroide_x],
+                                y=[centroide_y],
+                                z=[centroide_z],
+                                mode='markers',
+                                marker=dict(
+                                    size=marker_size * 2,
+                                    opacity=1.0,
+                                    color=colors[idx % len(colors)],
+                                    symbol='diamond',
+                                    line=dict(width=2, color='black')
+                                ),
+                                name=f'Centroide {clase}',
+                                text=f'<b>Centroide de {clase}</b><br>{comp_x}: {centroide_x:.3f}<br>{comp_y}: {centroide_y:.3f}<br>{comp_z}: {centroide_z:.3f}',
+                                hoverinfo='text',
+                                legendgroup=f'grupo_{idx}',
+                                showlegend=False
+                            ))
                 else:
-                    data = [go.Scatter3d(
+                    # Sin clases, usar gradiente de colores basado en distancia al origen
+                    distancias = np.sqrt(X_proj[:, idx_x]**2 + X_proj[:, idx_y]**2 + X_proj[:, idx_z]**2)
+                    
+                    data.append(go.Scatter3d(
                         x=X_proj[:, idx_x],
                         y=X_proj[:, idx_y],
                         z=X_proj[:, idx_z],
                         mode='markers',
-                        marker=dict(size=7, opacity=0.7, color='dodgerblue'),
-                        name='Datos',
+                        marker=dict(
+                            size=marker_size,
+                            opacity=marker_opacity,
+                            color=distancias,
+                            colorscale='Viridis',
+                            showscale=True,
+                            colorbar=dict(title="Distancia al origen", thickness=15),
+                            line=dict(width=0.5, color='darkgray')
+                        ),
+                        name='Datos PCA',
                         text=hover_text,
                         hoverinfo='text'
-                    )]
+                    ))
+                
+                # Agregar vectores de carga (loadings) si se desea
+                show_loadings = st.checkbox("Mostrar vectores de carga (loadings)", False, key="show_loadings_3d")
+                if show_loadings:
+                    # Escalar los vectores para visualización
+                    scale_factor = st.slider("Factor de escala para vectores", 1, 10, 5, key="loading_scale")
+                    
+                    for i, var in enumerate(feature_cols_pca):
+                        loading_x = pca.components_[idx_x, i] * scale_factor
+                        loading_y = pca.components_[idx_y, i] * scale_factor
+                        loading_z = pca.components_[idx_z, i] * scale_factor
+                        
+                        # Vector desde el origen
+                        hover_loading_text = f'<b>Vector de carga: {var}</b><br>Contribución a {comp_x}: {pca.components_[idx_x, i]:.3f}<br>Contribución a {comp_y}: {pca.components_[idx_y, i]:.3f}<br>Contribución a {comp_z}: {pca.components_[idx_z, i]:.3f}'
+                        
+                        data.append(go.Scatter3d(
+                            x=[0, loading_x],
+                            y=[0, loading_y],
+                            z=[0, loading_z],
+                            mode='lines+text',
+                            line=dict(color='red', width=3),
+                            text=['', var],
+                            textposition='top center',
+                            name=f'Loading {var}',
+                            showlegend=False,
+                            hovertext=[hover_loading_text, hover_loading_text],
+                            hoverinfo='text'
+                        ))
+                
+                # Configuración avanzada del layout con estilos personalizables
                 layout = go.Layout(
-                    title=f"PCA - Proyección {comp_x} vs {comp_y} vs {comp_z}",
+                    title={
+                        'text': f"<b>PCA - Proyección 3D Interactiva</b><br><sub>{comp_x} vs {comp_y} vs {comp_z}</sub>",
+                        'x': 0.5,
+                        'xanchor': 'center',
+                        'font': {'size': 18, 'color': title_color}
+                    },
                     scene=dict(
-                        xaxis_title=comp_x,
-                        yaxis_title=comp_y,
-                        zaxis_title=comp_z,
-                        bgcolor='white',
-                        xaxis=dict(showbackground=True, backgroundcolor='white', gridcolor='lightgray'),
-                        yaxis=dict(showbackground=True, backgroundcolor='white', gridcolor='lightgray'),
-                        zaxis=dict(showbackground=True, backgroundcolor='white', gridcolor='lightgray'),
-                        camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
+                        xaxis=dict(
+                            title=dict(
+                                text=f"<b>{comp_x}</b><br>({var_exp[idx_x]*100:.1f}% varianza)",
+                                font=dict(size=title_font_size, color=font_color)
+                            ),
+                            showbackground=show_grid,
+                            backgroundcolor=background_color,
+                            gridcolor=grid_color,
+                            gridwidth=grid_width,
+                            zeroline=True,
+                            zerolinecolor=zeroline_color,
+                            zerolinewidth=zeroline_width,
+                            showspikes=False,
+                            visible=show_axes,
+                            tickfont=dict(size=tick_font_size, color=tick_color),
+                            showline=True,
+                            linecolor=line_color,
+                            linewidth=axis_line_width,
+                            mirror=False,
+                            showgrid=show_grid,
+                            tickmode='auto',
+                            nticks=6
+                        ),
+                        yaxis=dict(
+                            title=dict(
+                                text=f"<b>{comp_y}</b><br>({var_exp[idx_y]*100:.1f}% varianza)",
+                                font=dict(size=title_font_size, color=font_color)
+                            ),
+                            showbackground=show_grid,
+                            backgroundcolor=background_color,
+                            gridcolor=grid_color,
+                            gridwidth=grid_width,
+                            zeroline=True,
+                            zerolinecolor=zeroline_color,
+                            zerolinewidth=zeroline_width,
+                            showspikes=False,
+                            visible=show_axes,
+                            tickfont=dict(size=tick_font_size, color=tick_color),
+                            showline=True,
+                            linecolor=line_color,
+                            linewidth=axis_line_width,
+                            mirror=False,
+                            showgrid=show_grid,
+                            tickmode='auto',
+                            nticks=6
+                        ),
+                        zaxis=dict(
+                            title=dict(
+                                text=f"<b>{comp_z}</b><br>({var_exp[idx_z]*100:.1f}% varianza)",
+                                font=dict(size=title_font_size, color=font_color)
+                            ),
+                            showbackground=show_grid,
+                            backgroundcolor=background_color,
+                            gridcolor=grid_color,
+                            gridwidth=grid_width,
+                            zeroline=True,
+                            zerolinecolor=zeroline_color,
+                            zerolinewidth=zeroline_width,
+                            showspikes=False,
+                            visible=show_axes,
+                            tickfont=dict(size=tick_font_size, color=tick_color),
+                            showline=True,
+                            linecolor=line_color,
+                            linewidth=axis_line_width,
+                            mirror=False,
+                            showgrid=show_grid,
+                            tickmode='auto',
+                            nticks=6
+                        ),
+                        bgcolor=scene_bgcolor,
+                        camera=dict(
+                            eye=dict(x=1.8, y=1.8, z=1.5),
+                            center=dict(x=0, y=0, z=0),
+                            up=dict(x=0, y=0, z=1)
+                        ),
+                        aspectmode='cube',
+                        dragmode='orbit'
                     ),
-                    legend=dict(bgcolor='rgba(0,0,0,0)', bordercolor='rgba(0,0,0,0)'),
-                    margin=dict(l=0, r=0, b=0, t=40)
+                    legend=dict(
+                        bgcolor=f'rgba(255,255,255,0.9)' if background_style != "Oscuro" else f'rgba(45,55,72,0.9)',
+                        bordercolor=line_color,
+                        borderwidth=1,
+                        x=0.02,
+                        y=0.98,
+                        font=dict(size=11, color=font_color),
+                        itemsizing='constant',
+                        itemwidth=30
+                    ),
+                    margin=dict(l=10, r=10, b=10, t=80),
+                    font=dict(size=12, color=font_color, family="Arial, sans-serif"),
+                    paper_bgcolor=paper_bgcolor,
+                    plot_bgcolor=plot_bgcolor,
+                    hoverlabel=dict(
+                        bgcolor=f'rgba(255,255,255,0.95)' if background_style != "Oscuro" else f'rgba(45,55,72,0.95)',
+                        bordercolor=zeroline_color,
+                        font_size=12,
+                        font_family="Arial",
+                        font_color=font_color
+                    )
                 )
+                
                 fig_pca = go.Figure(data=data, layout=layout)
-                st.plotly_chart(fig_pca, use_container_width=True)
-                st.caption("Interactúa con el gráfico: puedes rotar, hacer zoom y ver detalles de cada punto. Cada color representa una clase (si está seleccionada). Los valores de los ejes corresponden a los componentes principales seleccionados.")
+                
+                # Mostrar el gráfico
+                st.plotly_chart(fig_pca, use_container_width=True, config={
+                    'displayModeBar': True,
+                    'displaylogo': False,
+                    'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
+                    'toImageButtonOptions': {
+                        'format': 'png',
+                        'filename': f'pca_3d_{comp_x}_{comp_y}_{comp_z}',
+                        'height': 800,
+                        'width': 1200,
+                        'scale': 2
+                    }
+                })
+                
+                # Información detallada sobre la visualización
+                with st.expander("🎯 Guía de interpretación del gráfico 3D"):
+                    col1_info, col2_info = st.columns(2)
+                    
+                    with col1_info:
+                        st.markdown("""
+                        **📊 Elementos del gráfico:**
+                        - **Puntos**: Cada observación proyectada en el espacio 3D
+                        - **Colores**: Representan diferentes clases (si están definidas)
+                        - **Diamantes**: Centroides de cada clase
+                        - **Vectores rojos**: Direcciones de las variables originales (loadings)
+                        
+                        **🔄 Interactividad:**
+                        - **Rotar**: Arrastra para rotar la vista
+                        - **Zoom**: Rueda del ratón o pinch
+                        - **Pan**: Shift + arrastrar
+                        - **Hover**: Información detallada de cada punto
+                        """)
+                    
+                    with col2_info:
+                        st.markdown(f"""
+                        **📈 Información estadística:**
+                        - **Varianza explicada total**: {(var_exp[idx_x] + var_exp[idx_y] + var_exp[idx_z])*100:.1f}%
+                        - **{comp_x}**: {var_exp[idx_x]*100:.1f}% de varianza
+                        - **{comp_y}**: {var_exp[idx_y]*100:.1f}% de varianza
+                        - **{comp_z}**: {var_exp[idx_z]*100:.1f}% de varianza
+                        
+                        **🎨 Personalización:**
+                        - **Puntos**: Ajusta tamaño y transparencia
+                        - **Colores**: 6 esquemas diferentes disponibles
+                        - **Fondo**: 4 estilos (Claro, Oscuro, Neutro, Científico)
+                        - **Ejes**: 3 estilos (Moderno, Clásico, Minimalista)
+                        - **Rejilla**: Activar/desactivar según preferencia
+                        - **Vectores**: Mostrar direcciones de variables originales
+                        """)
+                
+                # Análisis automático de clustering visual
+                if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
+                    st.write("#### 🔍 Análisis automático de separación de clases")
+                    
+                    clases_unicas = df[class_col_pca].unique()
+                    n_clases = len(clases_unicas)
+                    
+                    # Calcular distancias entre centroides
+                    centroides = {}
+                    for clase in clases_unicas:
+                        mask = df[class_col_pca] == clase
+                        centroides[clase] = [
+                            np.mean(X_proj[mask, idx_x]),
+                            np.mean(X_proj[mask, idx_y]),
+                            np.mean(X_proj[mask, idx_z])
+                        ]
+                    
+                    # Matriz de distancias entre centroides
+                    if n_clases > 1:
+                        distancias_inter = []
+                        pares_clases = []
+                        for i, clase1 in enumerate(clases_unicas):
+                            for clase2 in clases_unicas[i+1:]:
+                                c1 = np.array(centroides[clase1])
+                                c2 = np.array(centroides[clase2])
+                                dist = np.linalg.norm(c1 - c2)
+                                distancias_inter.append(dist)
+                                pares_clases.append(f"{clase1} - {clase2}")
+                        
+                        # Mostrar análisis
+                        col1_analysis, col2_analysis = st.columns(2)
+                        
+                        with col1_analysis:
+                            st.metric("Número de clases", n_clases)
+                            st.metric("Distancia promedio entre centroides", f"{np.mean(distancias_inter):.2f}")
+                        
+                        with col2_analysis:
+                            max_dist_idx = np.argmax(distancias_inter)
+                            min_dist_idx = np.argmin(distancias_inter)
+                            st.metric("Clases más separadas", pares_clases[max_dist_idx])
+                            st.metric("Clases más cercanas", pares_clases[min_dist_idx])
+                        
+                        # Interpretación automática
+                        separacion_promedio = np.mean(distancias_inter)
+                        if separacion_promedio > 3:
+                            st.success("✅ **Excelente separación**: Las clases están bien diferenciadas en el espacio PCA.")
+                        elif separacion_promedio > 2:
+                            st.info("ℹ️ **Buena separación**: Las clases son distinguibles pero con cierto solapamiento.")
+                        elif separacion_promedio > 1:
+                            st.warning("⚠️ **Separación moderada**: Existe solapamiento considerable entre clases.")
+                        else:
+                            st.error("❌ **Separación pobre**: Las clases están muy mezcladas en el espacio PCA.")
+                
+                # Información sobre estilos disponibles
+                with st.expander("🎨 Guía de estilos de visualización"):
+                    col_style1, col_style2 = st.columns(2)
+                    
+                    with col_style1:
+                        st.markdown("""
+                        **� Estilos de fondo:**
+                        - **Claro**: Fondo suave ideal para presentaciones
+                        - **Oscuro**: Reduce fatiga visual, perfecto para análisis largos
+                        - **Neutro**: Profesional y neutral para reportes
+                        - **Científico**: Estilo académico con máximo contraste
+                        """)
+                    
+                    with col_style2:
+                        st.markdown("""
+                        **📐 Estilos de ejes:**
+                        - **Moderno**: Balance entre claridad y estética
+                        - **Clásico**: Líneas gruesas, máxima visibilidad
+                        - **Minimalista**: Líneas finas, interfaz limpia
+                        """)
+                
+                st.markdown("""
+                **💡 Consejos para la interpretación:**
+                - **Proximidad**: Puntos cercanos tienen características similares
+                - **Separación**: Distancia entre grupos indica diferencias entre clases
+                - **Vectores de carga**: Muestran influencia de variables originales
+                - **Varianza por eje**: Indica importancia de cada dimensión
+                - **Centroides**: Diamantes muestran el centro de cada clase
+                """)
+                
+                st.caption("🔄 **Gráfico interactivo**: Rota, haz zoom y explora los datos. Pasa el cursor sobre los puntos para ver información detallada.")
             else:
                 # Gráfico 2D interactivo con Plotly
                 if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
@@ -504,3 +1819,150 @@ if df is not None:
                 **¿Puedo usar PCA si tengo variables categóricas?**
                 - No directamente. PCA requiere variables numéricas. Convierte las categóricas en numéricas si es necesario.
                 """)
+
+# ======== SECCIÓN DE AYUDA Y DOCUMENTACIÓN ========
+st.sidebar.markdown("---")
+st.sidebar.write("## 📚 Ayuda y Documentación")
+
+with st.sidebar.expander("📖 Guía de uso"):
+    st.markdown("""
+    ### 🚀 Cómo usar esta aplicación
+    
+    **1. Selecciona el tipo de análisis:**
+    - **Discriminante (LDA/QDA)**: Para clasificación supervisada lineal o cuadrática
+    - **Bayes Ingenuo**: Para clasificación supervisada basada en el teorema de Bayes
+    - **PCA**: Para reducción de dimensiones
+    
+    **2. Carga tus datos:**
+    - Selecciona un archivo CSV de la carpeta de datos
+    - O sube tu propio archivo CSV
+    
+    **3. Configura el análisis:**
+    - Selecciona las variables target y features
+    - Ajusta los parámetros según tus necesidades
+    
+    **4. Interpreta los resultados:**
+    - Revisa las métricas y visualizaciones
+    - Usa las interpretaciones automáticas
+    - Explora las secciones expandibles para más detalles
+    """)
+
+with st.sidebar.expander("🎯 Métricas explicadas"):
+    st.markdown("""
+    ### 📊 Métricas de Clasificación
+    
+    **Accuracy**: Proporción de predicciones correctas
+    - > 0.9: Excelente
+    - 0.8-0.9: Buena
+    - 0.7-0.8: Regular
+    - < 0.7: Necesita mejora
+    
+    **Precision**: Exactitud de predicciones positivas
+    - Pregunta: "De los que predije positivos, ¿cuántos son realmente positivos?"
+    
+    **Recall (Sensibilidad)**: Capacidad de encontrar casos positivos
+    - Pregunta: "De todos los casos positivos reales, ¿cuántos encontré?"
+    
+    **F1-Score**: Media armónica entre precision y recall
+    - Balancea ambas métricas
+    
+    **ROC-AUC**: Área bajo la curva ROC
+    - Mide capacidad discriminativa del modelo
+    - > 0.9: Excelente
+    - 0.8-0.9: Buena
+    - 0.7-0.8: Aceptable
+    - < 0.7: Pobre
+    """)
+
+
+with st.sidebar.expander("🧮 Bayes Ingenuo explicado"):
+    st.markdown("""
+    ### 🤖 Bayes Ingenuo
+    
+    - Algoritmo de clasificación supervisada basado en el Teorema de Bayes.
+    - Supone independencia entre las variables dado la clase.
+    - Muy eficiente y fácil de implementar.
+    - Útil para clasificación de texto, spam, análisis de sentimientos, etc.
+    
+    **¿Cómo funciona?**
+    - Calcula la probabilidad de cada clase dado los atributos.
+    - Asigna la clase con mayor probabilidad posterior.
+    
+    **Ventajas:**
+    - Rápido, robusto y funciona bien con pocos datos.
+    
+    **Desventajas:**
+    - El supuesto de independencia rara vez se cumple totalmente.
+    """)
+
+with st.sidebar.expander("🔍 Interpretación de PCA"):
+    st.markdown("""
+    ### 📈 Componentes Principales
+    
+    **PC1, PC2, PC3...**: Nuevas variables creadas
+    - PC1 explica la mayor varianza
+    - PC2 explica la segunda mayor varianza
+    - Son perpendiculares entre sí
+    
+    **Varianza explicada**: Información conservada
+    - 80%+ acumulada es generalmente buena
+    - Ayuda a decidir cuántos componentes usar
+    
+    **Matriz de componentes**: Cómo se construyen
+    - Cada fila = un componente
+    - Cada columna = una variable original
+    - Valores = importancia de cada variable
+    
+    **Escalado**: Siempre recomendado
+    - Evita que variables de mayor rango dominen
+    - Permite comparación justa entre variables
+    """)
+
+with st.sidebar.expander("⚙️ Configuración avanzada"):
+    st.markdown("""
+    ### 🛠️ Opciones Avanzadas
+    
+    **Validación Cruzada**:
+    - Evalúa el modelo en diferentes subconjuntos
+    - Proporciona estimación más robusta
+    - K-fold típicamente entre 3-10
+    
+    **Comparación de Modelos**:
+    - Evalúa los algoritmos estudiados (LDA, QDA, Bayes Ingenuo)
+    - Compara métricas lado a lado
+    - Proporciona recomendaciones
+    
+    **Visualizaciones Interactivas**:
+    - Gráficos 3D con Plotly
+    - Hover para detalles
+    - Zoom y rotación disponibles
+    
+    **Interpretaciones Automáticas**:
+    - Análisis de resultados
+    - Recomendaciones basadas en métricas
+    - Identificación de problemas comunes
+    """)
+
+# Información sobre los datos de ejemplo si existen
+if os.path.exists(carpeta_datos) and archivos_csv:
+    with st.sidebar.expander("📁 Datos de ejemplo"):
+        st.markdown("### 📊 Datasets disponibles:")
+        for archivo in archivos_csv:
+            st.write(f"- {archivo}")
+        st.markdown("""
+        **Formato requerido**:
+        - Archivos CSV con headers
+        - Variables numéricas para features
+        - Variable categórica/entera para target (clasificación)
+        - Sin espacios en nombres de columnas (recomendado)
+        """)
+
+# Footer con información adicional
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+<div style='text-align: center; color: #666; font-size: 0.8em;'>
+    <p>📊 <strong>Análisis Integrado v2.1</strong></p>
+    <p>Incluye métricas avanzadas para LDA, QDA, Naive Bayes y PCA</p>
+    <p>🎓 Para inferencia estadística - Contenido según programa de la materia</p>
+</div>
+""", unsafe_allow_html=True)
