@@ -410,44 +410,45 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
         if not cat_cols:
             st.error("No hay columnas válidas para usar como variable de clase (target). Elige un dataset con una columna categórica o entera con pocos valores únicos.")
         else:
-            target_col = st.selectbox("Selecciona la columna de clase (target):", cat_cols, index=max(0, len(cat_cols)-1), key="target_bayes")
-            # Mostrar valores únicos y conteo
-            st.info("""
-            **¿Qué significa cada valor de la clase?**
-            Aquí puedes ver los valores únicos de la columna de clase seleccionada y cuántos ejemplos hay de cada uno. Esto te ayuda a saber a qué hace referencia cada clase (por ejemplo, 0 = no potable, 1 = potable).
-            """)
-            clase_unicos = df[target_col].unique()
-            conteo_clase = df[target_col].value_counts().sort_index()
-            st.write("#### Valores únicos de la clase:")
-            st.dataframe(pd.DataFrame({"Valor de clase": conteo_clase.index, "Cantidad": conteo_clase.values}), use_container_width=True)
-            # Mostrar ejemplos de filas para cada valor de clase
-            st.write("#### Ejemplos de filas para cada valor de clase:")
-            for v in sorted(clase_unicos):
-                st.caption(f"Ejemplos para clase '{v}':")
-                st.dataframe(df[df[target_col] == v].head(3), use_container_width=True)
-            # Sugerencia de interpretación si es binaria
-            if len(clase_unicos) == 2:
-                st.caption("""
-                **Sugerencia:**
-                - Si tu dataset es de agua potable, normalmente uno de los valores representa "no potable" y el otro "potable".
-                - Consulta la documentación del dataset para saber cuál es cuál.
-                - Si no hay documentación, puedes intentar inferirlo por la distribución o por el contexto de los datos.
+            with st.expander("1️⃣ Selección de columna de clase y significado de valores", expanded=True):
+                target_col = st.selectbox("Selecciona la columna de clase (target):", cat_cols, index=max(0, len(cat_cols)-1), key="target_bayes")
+                # Mostrar valores únicos y conteo
+                st.info("""
+                **¿Qué significa cada valor de la clase?**
+                Aquí puedes ver las clases únicas y su cantidad. Esto te ayuda a saber a qué hace referencia cada clase (por ejemplo, 0 = no potable, 1 = potable).
                 """)
-                # Permitir anotación manual
-                clase_labels = {}
+                clase_unicos = df[target_col].unique()
+                conteo_clase = df[target_col].value_counts().sort_index()
+                st.write("#### Valores únicos de la clase:")
+                st.dataframe(pd.DataFrame({"Valor de clase": conteo_clase.index, "Cantidad": conteo_clase.values}), use_container_width=True)
+                # Mostrar ejemplos de filas para cada valor de clase
+                st.write("#### Ejemplos de filas para cada valor de clase:")
                 for v in sorted(clase_unicos):
-                    label = st.text_input(f"¿Qué significa la clase '{v}'? (ej: potable/no potable)", key=f"label_bayes_{v}")
-                    clase_labels[v] = label
-                st.session_state["clase_labels_bayes"] = clase_labels
-            else:
+                    st.caption(f"Ejemplos para clase '{v}':")
+                    st.dataframe(df[df[target_col] == v].head(3), use_container_width=True)
+                # Sugerencia de interpretación si es binaria
+                if len(clase_unicos) == 2:
+                    st.caption("""
+                    **Sugerencia:**
+                    - Si tu dataset es de agua potable, normalmente uno de los valores representa "no potable" y el otro "potable".
+                    - Consulta la documentación del dataset para saber cuál es cuál.
+                    - Si no hay documentación, puedes intentar inferirlo por la distribución o por el contexto de los datos.
+                    """)
+                    # Permitir anotación manual
+                    clase_labels = {}
+                    for v in sorted(clase_unicos):
+                        label = st.text_input(f"¿Qué significa la clase '{v}'? (ej: potable/no potable)", key=f"label_bayes_{v}")
+                        clase_labels[v] = label
+                    st.session_state["clase_labels_bayes"] = clase_labels
+                else:
+                    st.caption("""
+                    Si tienes más de dos clases, revisa la documentación del dataset o consulta con el docente para saber el significado de cada valor.
+                    """)
                 st.caption("""
-                Si tienes más de dos clases, revisa la documentación del dataset o consulta con el docente para saber el significado de cada valor.
+                **¿Por qué es importante?**
+                - Interpretar correctamente los resultados depende de saber qué significa cada clase.
+                - Si tienes dudas, consulta la fuente del dataset o pregunta a tu docente.
                 """)
-            st.caption("""
-            **¿Por qué es importante?**
-            - Interpretar correctamente los resultados depende de saber qué significa cada clase.
-            - Si tienes dudas, consulta la fuente del dataset o pregunta a tu docente.
-            """)
             feature_cols = st.multiselect(
                 "Selecciona las columnas de atributos (features):",
                 [c for c in num_cols if c != target_col],
@@ -468,221 +469,225 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 from sklearn.naive_bayes import GaussianNB
                 model = GaussianNB()
                 model.fit(X, y)
-                # Predicción interactiva
-                st.write("### Ingresa una observación para predecir la clase")
-                st.info("""
-                **¿Qué es esto?**
-                Aquí puedes ingresar valores para cada atributo y predecir a qué clase pertenecería una nueva observación según el modelo entrenado.
-                
-                **¿Cómo se usa?**
-                - Ingresa valores numéricos para cada feature.
-                - Puedes usar ejemplos reales o probar valores hipotéticos.
-                - El modelo calculará la clase más probable y las probabilidades asociadas.
-                
-                **¿Cómo interpretarlo?**
-                - Útil para ver cómo el modelo clasifica nuevos casos y entender la influencia de cada variable.
-                """)
-                col1, col2 = st.columns([2,1])
-                with col2:
-                    if st.button("Cargar ejemplo aleatorio", key="btn_cargar_ejemplo_bayes"):
-                        ejemplo = df[feature_cols].sample(1).iloc[0].to_dict()
-                        for col in feature_cols:
-                            st.session_state[f"input_{col}_bayes"] = float(ejemplo[col])
-                        st.rerun()
-                nueva_obs = []
-                for col in feature_cols:
-                    minv = float(df[col].min())
-                    maxv = float(df[col].max())
-                    meanv = float(df[col].mean())
-                    col3, col4 = st.columns([3,2])
-                    with col3:
-                        val = st.number_input(f"{col}", min_value=minv, max_value=maxv, value=st.session_state.get(f"input_{col}_bayes", meanv), key=f"input_{col}_bayes")
-                        nueva_obs.append(val)
-                    with col4:
-                        st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
-                nueva_obs = [nueva_obs]
-                prediccion = model.predict(nueva_obs)
-                probas = model.predict_proba(nueva_obs)[0]
-                class_names = [str(c) for c in model.classes_]
-                # Botón solo para feedback visual, pero la predicción es reactiva
-                st.button("Predecir clase", key="btn_pred_bayes")
-                # Visualización y lógica siempre activas
-                st.success(f"Predicción: **{prediccion[0]}**")
-                st.write("#### Probabilidades por clase para la observación ingresada:")
-                st.caption("""
-                **¿Qué significa esto?**
-                Aquí se muestran las probabilidades calculadas para cada clase posible, dadas las características ingresadas.
-                
-                **¿Cómo interpretarlo?**
-                - La clase con mayor probabilidad es la predicción del modelo.
-                - Si varias clases tienen probabilidades similares, el modelo está menos seguro.
-                - Útil para analizar la confianza y la ambigüedad en la predicción.
-                """)
-                # Tabla de probabilidades
-                df_proba = pd.DataFrame({
-                    'Clase': class_names,
-                    'Probabilidad': [f"{p:.3f}" for p in probas]
-                })
-                st.dataframe(df_proba, use_container_width=True)
-                # Gráfico de barras
-                import plotly.graph_objects as go
-                fig_proba = go.Figure(go.Bar(
-                    x=class_names,
-                    y=probas,
-                    marker_color='royalblue',
-                    text=[f"{p:.2%}" for p in probas],
-                    textposition='auto'))
-                fig_proba.update_layout(
-                    title="Probabilidad de pertenencia a cada clase",
-                    xaxis_title="Clase",
-                    yaxis_title="Probabilidad",
-                    yaxis=dict(range=[0,1]),
-                    width=600, height=400
-                )
-                st.plotly_chart(fig_proba, use_container_width=True)
-                # Interpretación automática
-                max_idx = int(np.argmax(probas))
-                max_prob = probas[max_idx]
-                if max_prob > 0.9:
-                    st.info(f"El modelo está **muy seguro** de que la observación pertenece a la clase **{class_names[max_idx]}** (probabilidad {max_prob:.1%}).")
-                elif max_prob > 0.7:
-                    st.warning(f"El modelo predice la clase **{class_names[max_idx]}** con **confianza moderada** (probabilidad {max_prob:.1%}).")
-                else:
-                    st.error(f"La predicción es **incierta**: la clase más probable es **{class_names[max_idx]}** pero con baja confianza ({max_prob:.1%}). Revisa las probabilidades por clase.")
-                # Umbral de decisión interactivo
-                with st.expander("⚙️ Opcional: Ajustar umbral de decisión"):
-                    st.markdown("Puedes modificar el umbral mínimo de probabilidad para asignar una clase. Si ninguna clase supera el umbral, la predicción se considera incierta.")
-                    threshold = st.slider("Umbral mínimo de probabilidad", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="thresh_bayes")
-                    clases_superan = [(c, p) for c, p in zip(class_names, probas) if p >= threshold]
-                    if len(clases_superan) == 0:
-                        st.error(f"Con umbral {threshold:.2f}, **ninguna clase supera el umbral**. La predicción es incierta.")
-                    elif len(clases_superan) == 1:
-                        st.success(f"Con umbral {threshold:.2f}, la clase predicha es **{clases_superan[0][0]}** (probabilidad {clases_superan[0][1]:.1%}).")
-                    else:
-                        st.warning(f"Con umbral {threshold:.2f}, varias clases superan el umbral: " + ", ".join([f"{c} ({p:.1%})" for c, p in clases_superan]))
-                # ======== EVALUACIÓN COMPLETA DEL MODELO ========
-                st.write("## 📊 Evaluación del Modelo")
-                st.info("""
-                **¿Qué es esto?**
-                Aquí se evalúa el desempeño general del modelo Bayes Ingenuo usando todo el dataset.
-                
-                **¿Para qué sirve?**
-                - Permite ver qué tan bien clasifica el modelo en promedio.
-                - Incluye métricas globales y por clase, matriz de confusión y reportes detallados.
-                - Útil para comparar con otros modelos y detectar posibles problemas.
-                """)
-                y_pred = model.predict(X)
-                y_prob = None
-                try:
-                    if hasattr(model, 'predict_proba'):
-                        y_prob = model.predict_proba(X)
-                except:
-                    y_prob = None
-                class_names = [str(c) for c in model.classes_]
-                metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
-                mostrar_metricas_clasificacion(metricas, "Métricas de Bayes Ingenuo")
-                st.write("### 🎯 Matriz de Confusión Detallada")
-                st.caption("""
-                **¿Qué es la matriz de confusión?**
-                Es una tabla que muestra cuántas veces el modelo predijo correctamente cada clase y cuántas veces se confundió.
-                
-                **¿Cómo interpretarla?**
-                - La diagonal muestra los aciertos (predicciones correctas).
-                - Los valores fuera de la diagonal son errores de clasificación.
-                - Permite identificar patrones de confusión entre clases.
-                """)
-                visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names)
-                if y_prob is not None and len(class_names) > 1:
-                    st.write("### Curvas ROC (si hay probabilidades disponibles)")
-                    fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names)
-                    st.plotly_chart(fig_roc, use_container_width=True)
-                with st.expander("📋 Reporte de Clasificación Completo"):
-                    st.caption("""
+                with st.expander("2️⃣ Predicción interactiva y probabilidades por clase", expanded=True):
+                    st.write("### Ingresa una observación para predecir la clase")
+                    st.info("""
                     **¿Qué es esto?**
-                    Es un reporte detallado con métricas de precisión, recall y F1-score para cada clase, mostrado como tabla interactiva.
+                    Aquí puedes ingresar valores para cada atributo y predecir a qué clase pertenecería una nueva observación según el modelo entrenado.
+                    
+                    **¿Cómo se usa?**
+                    - Ingresa valores numéricos para cada feature.
+                    - Puedes usar ejemplos reales o probar valores hipotéticos.
+                    - El modelo calculará la clase más probable y las probabilidades asociadas.
+                    
+                    **¿Cómo interpretarlo?**
+                    - Útil para ver cómo el modelo clasifica nuevos casos y entender la influencia de cada variable.
+                    """)
+                    col1, col2 = st.columns([2,1])
+                    with col2:
+                        if st.button("Cargar ejemplo aleatorio", key="btn_cargar_ejemplo_bayes"):
+                            ejemplo = df[feature_cols].sample(1).iloc[0].to_dict()
+                            for col in feature_cols:
+                                st.session_state[f"input_{col}_bayes"] = float(ejemplo[col])
+                            st.rerun()
+                    nueva_obs = []
+                    for col in feature_cols:
+                        minv = float(df[col].min())
+                        maxv = float(df[col].max())
+                        meanv = float(df[col].mean())
+                        col3, col4 = st.columns([3,2])
+                        with col3:
+                            val = st.number_input(f"{col}", min_value=minv, max_value=maxv, value=st.session_state.get(f"input_{col}_bayes", meanv), key=f"input_{col}_bayes")
+                            nueva_obs.append(val)
+                        with col4:
+                            st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
+                    nueva_obs = [nueva_obs]
+                    prediccion = model.predict(nueva_obs)
+                    probas = model.predict_proba(nueva_obs)[0]
+                    class_names = [str(c) for c in model.classes_]
+                    # Botón solo para feedback visual, pero la predicción es reactiva
+                    st.button("Predecir clase", key="btn_pred_bayes")
+                    # Visualización y lógica siempre activas
+                    st.success(f"Predicción: **{prediccion[0]}**")
+                    with st.expander("Ver probabilidades por clase", expanded=True):
+                        st.write("#### Probabilidades por clase para la observación ingresada:")
+                        st.caption("""
+                        **¿Qué significa esto?**
+                        Aquí se muestran las probabilidades calculadas para cada clase posible, dadas las características ingresadas.
+                        
+                        **¿Cómo interpretarlo?**
+                        - La clase con mayor probabilidad es la predicción del modelo.
+                        - Si varias clases tienen probabilidades similares, el modelo está menos seguro.
+                        - Útil para analizar la confianza y la ambigüedad en la predicción.
+                        """)
+                        # Tabla de probabilidades
+                        df_proba = pd.DataFrame({
+                            'Clase': class_names,
+                            'Probabilidad': [f"{p:.3f}" for p in probas]
+                        })
+                        st.dataframe(df_proba, use_container_width=True)
+                        # Gráfico de barras
+                        import plotly.graph_objects as go
+                        fig_proba = go.Figure(go.Bar(
+                            x=class_names,
+                            y=probas,
+                            marker_color='royalblue',
+                            text=[f"{p:.2%}" for p in probas],
+                            textposition='auto'))
+                        fig_proba.update_layout(
+                            title="Probabilidad de pertenencia a cada clase",
+                            xaxis_title="Clase",
+                            yaxis_title="Probabilidad",
+                            yaxis=dict(range=[0,1]),
+                            width=600, height=400
+                        )
+                        st.plotly_chart(fig_proba, use_container_width=True)
+                        # Interpretación automática
+                        max_idx = int(np.argmax(probas))
+                        max_prob = probas[max_idx]
+                        if max_prob > 0.9:
+                            st.info(f"El modelo está **muy seguro** de que la observación pertenece a la clase **{class_names[max_idx]}** (probabilidad {max_prob:.1%}).")
+                        elif max_prob > 0.7:
+                            st.warning(f"El modelo predice la clase **{class_names[max_idx]}** con **confianza moderada** (probabilidad {max_prob:.1%}).")
+                        else:
+                            st.error(f"La predicción es **incierta**: la clase más probable es **{class_names[max_idx]}** pero con baja confianza ({max_prob:.1%}). Revisa las probabilidades por clase.")
+                    # Umbral de decisión interactivo
+                    with st.expander("⚙️ Opcional: Ajustar umbral de decisión"):
+                        st.markdown("Puedes modificar el umbral mínimo de probabilidad para asignar una clase. Si ninguna clase supera el umbral, la predicción se considera incierta.")
+                        threshold = st.slider("Umbral mínimo de probabilidad", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="thresh_bayes")
+                        clases_superan = [(c, p) for c, p in zip(class_names, probas) if p >= threshold]
+                        if len(clases_superan) == 0:
+                            st.error(f"Con umbral {threshold:.2f}, **ninguna clase supera el umbral**. La predicción es incierta.")
+                        elif len(clases_superan) == 1:
+                            st.success(f"Con umbral {threshold:.2f}, la clase predicha es **{clases_superan[0][0]}** (probabilidad {clases_superan[0][1]:.1%}).")
+                        else:
+                            st.warning(f"Con umbral {threshold:.2f}, varias clases superan el umbral: " + ", ".join([f"{c} ({p:.1%})" for c, p in clases_superan]))
+                # ======== EVALUACIÓN COMPLETA DEL MODELO ========
+                with st.expander("3️⃣ Evaluación completa del modelo", expanded=True):
+                    st.write("## 📊 Evaluación del Modelo")
+                    st.info("""
+                    **¿Qué es esto?**
+                    Aquí se evalúa el desempeño general del modelo Bayes Ingenuo usando todo el dataset.
                     
                     **¿Para qué sirve?**
-                    - Permite analizar el rendimiento del modelo en cada clase específica.
-                    - Útil para detectar clases difíciles de predecir o desbalanceadas.
+                    - Permite ver qué tan bien clasifica el modelo en promedio.
+                    - Incluye métricas globales y por clase, matriz de confusión y reportes detallados.
+                    - Útil para comparar con otros modelos y detectar posibles problemas.
                     """)
-                    # Mostrar como DataFrame con formato condicional pastel legible
-                    from sklearn.metrics import classification_report
-                    import pandas as pd
-                    import numpy as np
-                    report_dict = classification_report(y, y_pred, target_names=class_names, output_dict=True, zero_division=0)
-                    df_report = pd.DataFrame(report_dict).T
-                    # Reordenar columnas si existen
-                    cols = [c for c in ['precision','recall','f1-score','support'] if c in df_report.columns]
-                    df_report = df_report[cols]
-                    # Formatear valores
-                    for c in ['precision','recall','f1-score']:
-                        if c in df_report.columns:
-                            df_report[c] = df_report[c].apply(lambda x: float(x) if isinstance(x, (float, np.floating, int, np.integer)) else np.nan)
-                    # Formatear soporte como int
-                    if 'support' in df_report.columns:
-                        df_report['support'] = df_report['support'].astype(int)
-                    # Formato condicional pastel MUY claro y texto en negrita/negro
-                    def pastel_metric(val):
-                        if pd.isnull(val) or val == 0:
-                            return 'background-color: #ffffff; color: #111; font-weight: bold;'
-                        if val >= 0.8:
-                            color = '#81c784'  # verde pastel saturado
-                        elif val >= 0.6:
-                            color = '#fff176'  # amarillo pastel saturado
-                        elif val > 0.0:
-                            color = '#e57373'  # rojo pastel saturado
-                        else:
-                            color = '#ffffff'
-                        return f'background-color: {color}; color: #111; font-weight: bold;'
-                    styled = df_report.style.applymap(pastel_metric, subset=['precision','recall','f1-score'])\
-                        .format({'precision': '{:.2f}', 'recall': '{:.2f}', 'f1-score': '{:.2f}', 'support': '{:d}'})
-                    st.dataframe(styled, use_container_width=True, hide_index=False)
-                    st.markdown("""
-                    <div style='margin-bottom: 0.5em;'>
-                    <strong>Glosario de colores:</strong><br>
-                    <span style='background-color:#81c784; color:#111; padding:2px 8px; border-radius:4px;'>🟩 Verde</span> = valor alto (≥ 0.8, buen desempeño)<br>
-                    <span style='background-color:#fff176; color:#111; padding:2px 8px; border-radius:4px;'>🟨 Amarillo</span> = valor medio (≥ 0.6, aceptable)<br>
-                    <span style='background-color:#e57373; color:#111; padding:2px 8px; border-radius:4px;'>🟥 Rojo</span> = valor bajo (> 0.0, necesita mejora)<br>
-                    <span style='background-color:#fff; color:#111; padding:2px 8px; border-radius:4px;'>⬜ Blanco</span> = cero o nulo
-                    </div>
-                    """, unsafe_allow_html=True)
-                # Gráfico de barras de métricas por clase
-                st.write("### 📊 Rendimiento por Clase")
-                st.caption("""
-                **¿Qué muestra este gráfico?**
-                Aquí puedes comparar visualmente la precisión, recall y F1-score de cada clase, así como la cantidad de ejemplos por clase.
-                
-                **¿Cómo interpretarlo?**
-                - Barras altas indican buen rendimiento para esa clase.
-                - Si una clase tiene pocas muestras o bajo score, puede ser más difícil de predecir.
-                - Útil para identificar clases desbalanceadas o problemáticas.
-                """)
-                fig_class, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-                x = np.arange(len(class_names))
-                width = 0.25
-                ax1.bar(x - width, metricas['precision_per_class'], width, label='Precision', alpha=0.8)
-                ax1.bar(x, metricas['recall_per_class'], width, label='Recall', alpha=0.8)
-                ax1.bar(x + width, metricas['f1_per_class'], width, label='F1-Score', alpha=0.8)
-                ax1.set_xlabel('Clases')
-                ax1.set_ylabel('Score')
-                ax1.set_title('Métricas por Clase')
-                ax1.set_xticks(x)
-                ax1.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
-                ax1.legend()
-                ax1.grid(True, alpha=0.3)
-                class_counts = pd.Series(y).value_counts().sort_index()
-                ax2.bar(range(len(class_counts)), class_counts.values, alpha=0.7, color='skyblue')
-                ax2.set_xlabel('Clases')
-                ax2.set_ylabel('Número de muestras')
-                ax2.set_title('Distribución de clases en el dataset')
-                ax2.set_xticks(range(len(class_names)))
-                ax2.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
-                ax2.grid(True, alpha=0.3)
-                for i, v in enumerate(class_counts.values):
-                    ax2.text(i, v, str(v), ha='center', va='bottom', fontsize=9)
-                plt.tight_layout()
-                st.pyplot(fig_class)
-                st.info("Puedes comparar el rendimiento de Bayes Ingenuo con LDA/QDA seleccionando el mismo dataset en las otras vistas.")
+                    y_pred = model.predict(X)
+                    y_prob = None
+                    try:
+                        if hasattr(model, 'predict_proba'):
+                            y_prob = model.predict_proba(X)
+                    except:
+                        y_prob = None
+                    class_names = [str(c) for c in model.classes_]
+                    metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
+                    mostrar_metricas_clasificacion(metricas, "Métricas de Bayes Ingenuo")
+                    with st.expander("Ver matriz de confusión", expanded=True):
+                        st.write("### 🎯 Matriz de Confusión Detallada")
+                        st.caption("""
+                        **¿Qué es la matriz de confusión?**
+                        Es una tabla que muestra cuántas veces el modelo predijo correctamente cada clase y cuántas veces se confundió.
+                        
+                        **¿Cómo interpretarla?**
+                        - La diagonal muestra los aciertos (predicciones correctas).
+                        - Los valores fuera de la diagonal son errores de clasificación.
+                        - Permite identificar patrones de confusión entre clases.
+                        """)
+                        visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names)
+                    if y_prob is not None and len(class_names) > 1:
+                        with st.expander("Ver curvas ROC", expanded=True):
+                            st.write("### Curvas ROC (si hay probabilidades disponibles)")
+                            fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names)
+                            st.plotly_chart(fig_roc, use_container_width=True)
+                    with st.expander("📋 Reporte de Clasificación Completo", expanded=True):
+                        st.caption("""
+                        **¿Qué es esto?**
+                        Es un reporte detallado con métricas de precisión, recall y F1-score para cada clase, mostrado como tabla interactiva.
+                        
+                        **¿Para qué sirve?**
+                        - Permite analizar el rendimiento del modelo en cada clase específica.
+                        - Útil para detectar clases difíciles de predecir o desbalanceadas.
+                        """)
+                        # Mostrar como DataFrame con formato condicional pastel legible
+                        from sklearn.metrics import classification_report
+                        import pandas as pd
+                        import numpy as np
+                        report_dict = classification_report(y, y_pred, target_names=class_names, output_dict=True, zero_division=0)
+                        df_report = pd.DataFrame(report_dict).T
+                        # Reordenar columnas si existen
+                        cols = [c for c in ['precision','recall','f1-score','support'] if c in df_report.columns]
+                        df_report = df_report[cols]
+                        # Formatear valores
+                        for c in ['precision','recall','f1-score']:
+                            if c in df_report.columns:
+                                df_report[c] = df_report[c].apply(lambda x: float(x) if isinstance(x, (float, np.floating, int, np.integer)) else np.nan)
+                        # Formatear soporte como int
+                        if 'support' in df_report.columns:
+                            df_report['support'] = df_report['support'].astype(int)
+                        # Formato condicional pastel MUY claro y texto en negrita/negro
+                        def pastel_metric(val):
+                            if pd.isnull(val) or val == 0:
+                                return 'background-color: #ffffff; color: #111; font-weight: bold;'
+                            if val >= 0.8:
+                                color = '#81c784'  # verde pastel saturado
+                            elif val >= 0.6:
+                                color = '#fff176'  # amarillo pastel saturado
+                            elif val > 0.0:
+                                color = '#e57373'  # rojo pastel saturado
+                            else:
+                                color = '#ffffff'
+                            return f'background-color: {color}; color: #111; font-weight: bold;'
+                        styled = df_report.style.applymap(pastel_metric, subset=['precision','recall','f1-score'])\
+                            .format({'precision': '{:.2f}', 'recall': '{:.2f}', 'f1-score': '{:.2f}', 'support': '{:d}'})
+                        st.dataframe(styled, use_container_width=True, hide_index=False)
+                        st.markdown("""
+                        <div style='margin-bottom: 0.5em;'>
+                        <strong>Glosario de colores:</strong><br>
+                        <span style='background-color:#81c784; color:#111; padding:2px 8px; border-radius:4px;'>🟩 Verde</span> = valor alto (≥ 0.8, buen desempeño)<br>
+                        <span style='background-color:#fff176; color:#111; padding:2px 8px; border-radius:4px;'>🟨 Amarillo</span> = valor medio (≥ 0.6, aceptable)<br>
+                        <span style='background-color:#e57373; color:#111; padding:2px 8px; border-radius:4px;'>🟥 Rojo</span> = valor bajo (> 0.0, necesita mejora)<br>
+                        <span style='background-color:#fff; color:#111; padding:2px 8px; border-radius:4px;'>⬜ Blanco</span> = cero o nulo
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with st.expander("Ver rendimiento por clase y distribución", expanded=True):
+                        st.write("### 📊 Rendimiento por Clase")
+                        st.caption("""
+                        **¿Qué muestra este gráfico?**
+                        Aquí puedes comparar visualmente la precisión, recall y F1-score de cada clase, así como la cantidad de ejemplos por clase.
+                        
+                        **¿Cómo interpretarlo?**
+                        - Barras altas indican buen rendimiento para esa clase.
+                        - Si una clase tiene pocas muestras o bajo score, puede ser más difícil de predecir.
+                        - Útil para identificar clases desbalanceadas o problemáticas.
+                        """)
+                        fig_class, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+                        x = np.arange(len(class_names))
+                        width = 0.25
+                        ax1.bar(x - width, metricas['precision_per_class'], width, label='Precision', alpha=0.8)
+                        ax1.bar(x, metricas['recall_per_class'], width, label='Recall', alpha=0.8)
+                        ax1.bar(x + width, metricas['f1_per_class'], width, label='F1-Score', alpha=0.8)
+                        ax1.set_xlabel('Clases')
+                        ax1.set_ylabel('Score')
+                        ax1.set_title('Métricas por Clase')
+                        ax1.set_xticks(x)
+                        ax1.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
+                        ax1.legend()
+                        ax1.grid(True, alpha=0.3)
+                        class_counts = pd.Series(y).value_counts().sort_index()
+                        ax2.bar(range(len(class_counts)), class_counts.values, alpha=0.7, color='skyblue')
+                        ax2.set_xlabel('Clases')
+                        ax2.set_ylabel('Número de muestras')
+                        ax2.set_title('Distribución de clases en el dataset')
+                        ax2.set_xticks(range(len(class_names)))
+                        ax2.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
+                        ax2.grid(True, alpha=0.3)
+                        for i, v in enumerate(class_counts.values):
+                            ax2.text(i, v, str(v), ha='center', va='bottom', fontsize=9)
+                        plt.tight_layout()
+                        st.pyplot(fig_class)
+                        st.info("Puedes comparar el rendimiento de Bayes Ingenuo con LDA/QDA seleccionando el mismo dataset en las otras vistas.")
     # ================= FIN VISTA BAYES INGENUO =================
     elif analisis == "Discriminante (LDA/QDA)":
         st.header("Clasificación Discriminante (LDA/QDA)")
