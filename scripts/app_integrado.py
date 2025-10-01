@@ -781,8 +781,15 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 - Útil para ver cómo el modelo clasifica nuevos casos y entender la influencia de cada variable.
                 """)
                 for col in feature_cols:
-                    val = st.number_input(f"{col}", min_value=float(df[col].min()), max_value=float(df[col].max()), value=float(df[col].mean()))
-                    nueva_obs.append(val)
+                    minv = float(df[col].min())
+                    maxv = float(df[col].max())
+                    meanv = float(df[col].mean())
+                    col3, col4 = st.columns([3,2])
+                    with col3:
+                        val = st.number_input(f"{col}", min_value=minv, max_value=maxv, value=meanv)
+                        nueva_obs.append(val)
+                    with col4:
+                        st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
                 nueva_obs = [nueva_obs]
                 prediccion = model.predict(nueva_obs)
                 probas = None
