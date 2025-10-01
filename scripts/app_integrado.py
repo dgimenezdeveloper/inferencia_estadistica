@@ -727,14 +727,11 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 if X.isnull().values.any():
                     st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
                     X = X.fillna(X.mean())
-                algoritmo = st.selectbox("Selecciona el algoritmo", ["LDA", "QDA", "Bayes Ingenuo"])
+                algoritmo = st.selectbox("Selecciona el algoritmo", ["LDA", "QDA"])
                 if algoritmo == "LDA":
                     model = LinearDiscriminantAnalysis(store_covariance=True)
                 elif algoritmo == "QDA":
                     model = QuadraticDiscriminantAnalysis(store_covariance=True)
-                else:
-                    from sklearn.naive_bayes import GaussianNB
-                    model = GaussianNB()
                 model.fit(X, y)
                 # Mostrar matriz de covarianza estimada por el modelo (solo LDA/QDA)
                 if algoritmo in ["LDA", "QDA"]:
