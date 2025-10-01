@@ -785,6 +785,12 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     nueva_obs.append(val)
                 nueva_obs = [nueva_obs]
                 prediccion = model.predict(nueva_obs)
+                probas = None
+                if hasattr(model, 'predict_proba'):
+                    try:
+                        probas = model.predict_proba(nueva_obs)[0]
+                    except Exception:
+                        probas = None
                 if st.button("Predecir clase"):
                     st.caption("""
                     **¿Qué significa esto?**
@@ -794,8 +800,44 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     - La clase mostrada es la predicción del modelo.
                     - Si hay probabilidades, puedes ver la confianza del modelo en su predicción.
                     """)
-                    st.success(f"Predicción para {nueva_obs}: {prediccion[0]}")
+                    st.success(f"Predicción: **{prediccion[0]}**")
                     st.write(f"Algoritmo usado: {algoritmo}")
+                    # Mostrar probabilidades por clase si existen
+                    if probas is not None:
+                        class_names = [str(c) for c in model.classes_]
+                        with st.expander("Ver probabilidades por clase", expanded=True):
+                            st.write("#### Probabilidades por clase para la observación ingresada:")
+                            st.caption("""
+                            **¿Qué significa esto?**
+                            Aquí se muestran las probabilidades calculadas para cada clase posible, dadas las características ingresadas.
+                            
+                            **¿Cómo interpretarlo?**
+                            - La clase con mayor probabilidad es la predicción del modelo.
+                            - Si varias clases tienen probabilidades similares, el modelo está menos seguro.
+                            - Útil para analizar la confianza y la ambigüedad en la predicción.
+                            """)
+                            # Tabla de probabilidades
+                            df_proba = pd.DataFrame({
+                                'Clase': class_names,
+                                'Probabilidad': [f"{p:.3f}" for p in probas]
+                            })
+                            st.dataframe(df_proba, use_container_width=True)
+                            # Gráfico de barras
+                            import plotly.graph_objects as go
+                            fig_proba = go.Figure(go.Bar(
+                                x=class_names,
+                                y=probas,
+                                marker_color='royalblue',
+                                text=[f"{p:.2%}" for p in probas],
+                                textposition='auto'))
+                            fig_proba.update_layout(
+                                title="Probabilidad de pertenencia a cada clase",
+                                xaxis_title="Clase",
+                                yaxis_title="Probabilidad",
+                                yaxis=dict(range=[0,1]),
+                                width=600, height=400
+                            )
+                            st.plotly_chart(fig_proba, use_container_width=True)
                     if algoritmo == "Bayes Ingenuo":
                         st.info("Bayes Ingenuo (Naive Bayes) es un clasificador probabilístico basado en la regla de Bayes y la independencia entre atributos.")
                 # ======== EVALUACIÓN COMPLETA DEL MODELO ========
