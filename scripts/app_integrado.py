@@ -67,8 +67,12 @@ def calcular_metricas_clasificacion(y_true, y_pred, y_prob=None, class_names=Non
             metricas['roc_auc'] = None
     
     # Nombres de clases
+    # Usar nombres descriptivos si existen en session_state
+    labels_map = st.session_state.get("clase_labels_global", {})
     if class_names is None:
-        class_names = [f"Clase {i}" for i in np.unique(y_true)]
+        class_names = [labels_map.get(i, str(i)) for i in np.unique(y_true)]
+    else:
+        class_names = [labels_map.get(i, str(i)) for i in class_names]
     metricas['class_names'] = class_names
     
     return metricas
@@ -97,13 +101,14 @@ def mostrar_metricas_clasificacion(metricas, titulo="Métricas de Evaluación"):
     # Tabla detallada por clase
     st.write("#### Métricas por clase")
     
+    class_labels_global = st.session_state.get("clase_labels_global", {})
+    nombres_clase = [class_labels_global.get(c, str(c)) for c in metricas['class_names']]
     tabla_metricas = pd.DataFrame({
-        'Clase': metricas['class_names'],
+        'Clase': nombres_clase,
         'Precision': [f"{p:.3f}" for p in metricas['precision_per_class']],
         'Recall': [f"{r:.3f}" for r in metricas['recall_per_class']],
         'F1-Score': [f"{f:.3f}" for f in metricas['f1_per_class']]
     })
-    
     st.dataframe(tabla_metricas, use_container_width=True)
     
     # Interpretaciones automáticas
@@ -205,7 +210,6 @@ def crear_curvas_roc_interactivas(y_true, y_prob, class_names):
         for i, class_name in enumerate(class_names):
             fpr, tpr, _ = roc_curve(y_bin[:, i], y_prob[:, i])
             roc_auc = auc(fpr, tpr)
-            
             fig.add_trace(go.Scatter(
                 x=fpr, y=tpr,
                 mode='lines',
@@ -342,6 +346,25 @@ elif opcion_archivo:
 
 if df is not None:
 
+    # Detectar columnas categóricas elegibles para target
+    max_unique_target = 20
+    columnas = df.columns.tolist()
+    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
+    cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or pd.api.types.is_categorical_dtype(df[c]) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
+    # Asignar nombres descriptivos a las clases antes de la vista previa
+    if cat_cols:
+        st.write("### Asignación de nombres descriptivos a las clases")
+        target_col = st.selectbox("Selecciona la columna de clase (target):", cat_cols, index=max(0, len(cat_cols)-1), key="target_global")
+        clase_unicos = sorted(df[target_col].unique())
+        conteo_clase = df[target_col].value_counts().sort_index()
+        st.write("#### Valores únicos de la clase:")
+        # Inputs para nombres descriptivos
+        clase_labels_global = st.session_state.get("clase_labels_global", {})
+        for v in clase_unicos:
+            label = st.text_input(f"Nombre descriptivo para la clase '{v}'", value=clase_labels_global.get(v, str(v)), key=f"label_global_{v}")
+            clase_labels_global[v] = label if label.strip() else str(v)
+        st.session_state["clase_labels_global"] = clase_labels_global
+        st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), use_container_width=True)
     st.write("### Vista previa del dataset")
     st.info("""
     **¿Qué es esto?**
@@ -417,33 +440,23 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 **¿Qué significa cada valor de la clase?**
                 Aquí puedes ver las clases únicas y su cantidad. Esto te ayuda a saber a qué hace referencia cada clase (por ejemplo, 0 = no potable, 1 = potable).
                 """)
-                clase_unicos = df[target_col].unique()
+                clase_unicos = sorted(df[target_col].unique())
                 conteo_clase = df[target_col].value_counts().sort_index()
+                # Obtener mapeo de nombres descriptivos (si ya existe)
+                clase_labels_global = st.session_state.get("clase_labels_global", {})
+                for v in clase_unicos:
+                    label = st.session_state.get(f"label_global_{v}", str(v))
+                    clase_labels_global[v] = label if label.strip() else str(v)
+                st.session_state["clase_labels_global"] = clase_labels_global
                 st.write("#### Valores únicos de la clase:")
-                st.dataframe(pd.DataFrame({"Valor de clase": conteo_clase.index, "Cantidad": conteo_clase.values}), use_container_width=True)
+                st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), use_container_width=True)
                 # Mostrar ejemplos de filas para cada valor de clase
-                st.write("#### Ejemplos de filas para cada valor de clase:")
-                for v in sorted(clase_unicos):
-                    st.caption(f"Ejemplos para clase '{v}':")
+                st.write("#### Ejemplos para cada clase:")
+                for v in clase_unicos:
+                    nombre_clase = clase_labels_global[v]
+                    st.caption(f"Ejemplos para la clase '{nombre_clase}':")
                     st.dataframe(df[df[target_col] == v].head(3), use_container_width=True)
-                # Sugerencia de interpretación si es binaria
-                if len(clase_unicos) == 2:
-                    st.caption("""
-                    **Sugerencia:**
-                    - Si tu dataset es de agua potable, normalmente uno de los valores representa "no potable" y el otro "potable".
-                    - Consulta la documentación del dataset para saber cuál es cuál.
-                    - Si no hay documentación, puedes intentar inferirlo por la distribución o por el contexto de los datos.
-                    """)
-                    # Permitir anotación manual
-                    clase_labels = {}
-                    for v in sorted(clase_unicos):
-                        label = st.text_input(f"¿Qué significa la clase '{v}'? (ej: potable/no potable)", key=f"label_bayes_{v}")
-                        clase_labels[v] = label
-                    st.session_state["clase_labels_bayes"] = clase_labels
-                else:
-                    st.caption("""
-                    Si tienes más de dos clases, revisa la documentación del dataset o consulta con el docente para saber el significado de cada valor.
-                    """)
+                
                 st.caption("""
                 **¿Por qué es importante?**
                 - Interpretar correctamente los resultados depende de saber qué significa cada clase.
@@ -508,7 +521,9 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     # Botón solo para feedback visual, pero la predicción es reactiva
                     st.button("Predecir clase", key="btn_pred_bayes")
                     # Visualización y lógica siempre activas
-                    st.success(f"Predicción: **{prediccion[0]}**")
+                    class_labels_global = st.session_state.get("clase_labels_global", {})
+                    nombre_prediccion = class_labels_global.get(prediccion[0], str(prediccion[0]))
+                    st.success(f"Predicción: {nombre_prediccion}")
                     with st.expander("Ver probabilidades por clase", expanded=True):
                         st.write("#### Probabilidades por clase para la observación ingresada:")
                         st.caption("""
@@ -520,16 +535,17 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         - Si varias clases tienen probabilidades similares, el modelo está menos seguro.
                         - Útil para analizar la confianza y la ambigüedad en la predicción.
                         """)
-                        # Tabla de probabilidades
+                        # Usar nombres descriptivos en la tabla y gráfico
+                        nombres_clase_descriptivos = [class_labels_global.get(c, str(c)) for c in model.classes_]
                         df_proba = pd.DataFrame({
-                            'Clase': class_names,
+                            'Clase': nombres_clase_descriptivos,
                             'Probabilidad': [f"{p:.3f}" for p in probas]
                         })
                         st.dataframe(df_proba, use_container_width=True)
                         # Gráfico de barras
                         import plotly.graph_objects as go
                         fig_proba = go.Figure(go.Bar(
-                            x=class_names,
+                            x=nombres_clase_descriptivos,
                             y=probas,
                             marker_color='royalblue',
                             text=[f"{p:.2%}" for p in probas],
@@ -545,12 +561,13 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         # Interpretación automática
                         max_idx = int(np.argmax(probas))
                         max_prob = probas[max_idx]
+                        clase_max_nombre = nombres_clase_descriptivos[max_idx]
                         if max_prob > 0.9:
-                            st.info(f"El modelo está **muy seguro** de que la observación pertenece a la clase **{class_names[max_idx]}** (probabilidad {max_prob:.1%}).")
+                            st.info(f"El modelo está **muy seguro** de que la observación pertenece a la clase **{clase_max_nombre}** (probabilidad {max_prob:.1%}).")
                         elif max_prob > 0.7:
-                            st.warning(f"El modelo predice la clase **{class_names[max_idx]}** con **confianza moderada** (probabilidad {max_prob:.1%}).")
+                            st.warning(f"El modelo predice la clase **{clase_max_nombre}** con **confianza moderada** (probabilidad {max_prob:.1%}).")
                         else:
-                            st.error(f"La predicción es **incierta**: la clase más probable es **{class_names[max_idx]}** pero con baja confianza ({max_prob:.1%}). Revisa las probabilidades por clase.")
+                            st.error(f"La predicción es **incierta**: la clase más probable es **{clase_max_nombre}** pero con baja confianza ({max_prob:.1%}). Revisa las probabilidades por clase.")
                     # Umbral de decisión interactivo
                     with st.expander("⚙️ Opcional: Ajustar umbral de decisión"):
                         st.markdown("Puedes modificar el umbral mínimo de probabilidad para asignar una clase. Si ninguna clase supera el umbral, la predicción se considera incierta.")
@@ -581,7 +598,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                             y_prob = model.predict_proba(X)
                     except:
                         y_prob = None
-                    class_names = [str(c) for c in model.classes_]
+                    class_labels_global = st.session_state.get("clase_labels_global", {})
+                    class_names = [class_labels_global.get(c, str(c)) for c in model.classes_]
                     metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
                     mostrar_metricas_clasificacion(metricas, "Métricas de Bayes Ingenuo")
                     with st.expander("Ver matriz de confusión", expanded=True):
@@ -804,11 +822,15 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     - La clase mostrada es la predicción del modelo.
                     - Si hay probabilidades, puedes ver la confianza del modelo en su predicción.
                     """)
-                    st.success(f"Predicción: **{prediccion[0]}**")
+                    class_labels_global = st.session_state.get("clase_labels_global", {})
+                    nombre_prediccion = class_labels_global.get(prediccion[0], str(prediccion[0]))
+                    st.success(f"Predicción: {nombre_prediccion}")
                     st.write(f"Algoritmo usado: {algoritmo}")
                     # Mostrar probabilidades por clase si existen
                     if probas is not None:
                         class_names = [str(c) for c in model.classes_]
+                        class_labels_global = st.session_state.get("clase_labels_global", {})
+                        nombres_clase = [class_labels_global.get(c, str(c)) for c in model.classes_]
                         with st.expander("Ver probabilidades por clase", expanded=True):
                             st.write("#### Probabilidades por clase para la observación ingresada:")
                             st.caption("""
@@ -822,14 +844,14 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                             """)
                             # Tabla de probabilidades
                             df_proba = pd.DataFrame({
-                                'Clase': class_names,
+                                'Clase': nombres_clase,
                                 'Probabilidad': [f"{p:.3f}" for p in probas]
                             })
                             st.dataframe(df_proba, use_container_width=True)
                             # Gráfico de barras
                             import plotly.graph_objects as go
                             fig_proba = go.Figure(go.Bar(
-                                x=class_names,
+                                x=nombres_clase,
                                 y=probas,
                                 marker_color='royalblue',
                                 text=[f"{p:.2%}" for p in probas],
@@ -878,7 +900,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     y_prob = None
                 
                 # Calcular todas las métricas
-                class_names = [str(c) for c in model.classes_]
+                class_labels_global = st.session_state.get("clase_labels_global", {})
+                class_names = [class_labels_global.get(c, str(c)) for c in model.classes_]
                 metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
                 
                 # Mostrar métricas principales
@@ -1296,29 +1319,83 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 show_proj = st.checkbox("Mostrar gráfico de componentes discriminantes (proyección LDA/QDA)")
                 if show_proj:
                     try:
+                        # Determinar número de componentes posibles
+                        n_clases = len(np.unique(y))
+                        n_comp = n_clases - 1 if algoritmo == "LDA" else min(len(feature_cols), n_clases)
+                        # Proyección LDA/QDA
                         if algoritmo == "LDA":
                             X_proj = model.transform(X)
                         else:
                             from sklearn.decomposition import PCA
-                            pca = PCA(n_components=2)
+                            pca = PCA(n_components=min(3, X.shape[1]))
                             X_proj = pca.fit_transform(X)
-                        fig3, ax3 = plt.subplots()
-                        for clase in np.unique(y):
-                            ax3.scatter(X_proj[y == clase, 0], X_proj[y == clase, 1], label=str(clase))
-                        ax3.set_xlabel('Componente 1')
-                        ax3.set_ylabel('Componente 2')
-                        ax3.legend()
-                        st.pyplot(fig3)
+                        class_labels_global = st.session_state.get("clase_labels_global", {})
+                        # Opción para elegir 2D o 3D si hay suficientes componentes
+                        plot_mode = "2D"
+                        if X_proj.shape[1] >= 3:
+                            plot_mode = st.radio("Tipo de gráfico", ["2D", "3D"], index=0, horizontal=True)
+                        if plot_mode == "3D" and X_proj.shape[1] >= 3:
+                            import plotly.express as px
+                            df_plot = pd.DataFrame({
+                                'Componente 1': X_proj[:, 0],
+                                'Componente 2': X_proj[:, 1],
+                                'Componente 3': X_proj[:, 2],
+                                'Clase': [class_labels_global.get(val, str(val)) for val in y]
+                            })
+                            fig_plotly = px.scatter_3d(
+                                df_plot,
+                                x='Componente 1',
+                                y='Componente 2',
+                                z='Componente 3',
+                                color='Clase',
+                                title='Separación de clases (proyección LDA/QDA 3D)',
+                                width=900,
+                                height=700,
+                                opacity=0.7
+                            )
+                            fig_plotly.update_traces(marker=dict(size=6, line=dict(width=0.5, color='DarkSlateGrey')))
+                            st.plotly_chart(fig_plotly, use_container_width=True)
+                        else:
+                            import plotly.express as px
+                            df_plot = pd.DataFrame({
+                                'Componente 1': X_proj[:, 0],
+                                'Componente 2': X_proj[:, 1],
+                                'Clase': [class_labels_global.get(val, str(val)) for val in y]
+                            })
+                            fig_plotly = px.scatter(
+                                df_plot,
+                                x='Componente 1',
+                                y='Componente 2',
+                                color='Clase',
+                                title='Separación de clases (proyección LDA/QDA)',
+                                width=800,
+                                height=600,
+                                opacity=0.7
+                            )
+                            fig_plotly.update_traces(marker=dict(size=8, line=dict(width=0.5, color='DarkSlateGrey')))
+                            st.plotly_chart(fig_plotly, use_container_width=True)
                     except Exception as e:
                         st.error(f"No se pudo calcular la proyección: {e}")
                 elif len(feature_cols) == 2:
-                    fig2, ax2 = plt.subplots()
-                    for clase in np.unique(y):
-                        ax2.scatter(X[y == clase][feature_cols[0]], X[y == clase][feature_cols[1]], label=str(clase))
-                    ax2.set_xlabel(feature_cols[0])
-                    ax2.set_ylabel(feature_cols[1])
-                    ax2.legend()
-                    st.pyplot(fig2)
+                    class_labels_global = st.session_state.get("clase_labels_global", {})
+                    df_plot = pd.DataFrame({
+                        feature_cols[0]: X[feature_cols[0]],
+                        feature_cols[1]: X[feature_cols[1]],
+                        'Clase': [class_labels_global.get(val, str(val)) for val in y]
+                    })
+                    import plotly.express as px
+                    fig_plotly = px.scatter(
+                        df_plot,
+                        x=feature_cols[0],
+                        y=feature_cols[1],
+                        color='Clase',
+                        title=f'Separación de clases ({feature_cols[0]} vs {feature_cols[1]})',
+                        width=800,
+                        height=600,
+                        opacity=0.7
+                    )
+                    fig_plotly.update_traces(marker=dict(size=8, line=dict(width=0.5, color='DarkSlateGrey')))
+                    st.plotly_chart(fig_plotly, use_container_width=True)
     elif analisis == "Reducción de dimensiones (PCA)":
         # La sección completa de PCA (explicaciones, selección de variables y visualizaciones)
         # está implementada más abajo y usa las variables que se definen después de seleccionar las columnas para PCA.
@@ -1356,6 +1433,9 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
         if feature_cols_pca:
             st.info("Las siglas 'PC' significan 'Principal Component' o 'Componente Principal'. Por ejemplo, PC1 es el primer componente principal, PC2 el segundo, y así sucesivamente. Cada uno es una combinación lineal de las variables originales que explica una parte de la varianza total del dataset.")
             X_pca = df[feature_cols_pca]
+            if X_pca.isnull().values.any():
+                st.warning("Se encontraron valores faltantes en las columnas seleccionadas para PCA. Imputando con la media de cada columna...")
+                X_pca = X_pca.fillna(X_pca.mean())
             X_pca_scaled = StandardScaler().fit_transform(X_pca)
             n_samples, n_features = X_pca_scaled.shape
             max_components = min(n_samples, n_features)
@@ -1680,7 +1760,9 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     
                     # Información de clase si está disponible
                     if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
-                        txt += f"<br><b>{class_col_pca}:</b> {df[class_col_pca].iloc[i]}<br>"
+                        class_labels_pca = st.session_state.get("clase_labels_global", {})
+                        nombre_clase = class_labels_pca.get(df[class_col_pca].iloc[i], str(df[class_col_pca].iloc[i]))
+                        txt += f"<br><b>{class_col_pca}:</b> {nombre_clase}<br>"
                     
                     # Información adicional de variables originales más influyentes
                     txt += "<br><b>Variables originales influyentes:</b><br>"
@@ -1702,18 +1784,18 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 # Crear visualización según si hay clases o no
                 data = []
                 if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
+                    class_labels_pca = st.session_state.get("clase_labels_global", {})
                     clases = pd.Categorical(df[class_col_pca]).categories
                     codigos = pd.Categorical(df[class_col_pca]).codes
-                    
                     for idx, clase in enumerate(clases):
                         puntos = codigos == idx
+                        nombre_clase = class_labels_pca.get(clase, str(clase))
                         if np.any(puntos):  # Solo agregar si hay puntos de esta clase
                             # Calcular estadísticas por clase
                             n_puntos = np.sum(puntos)
                             centroide_x = np.mean(X_proj[puntos, idx_x])
                             centroide_y = np.mean(X_proj[puntos, idx_y])
                             centroide_z = np.mean(X_proj[puntos, idx_z])
-                            
                             data.append(go.Scatter3d(
                                 x=X_proj[puntos, idx_x],
                                 y=X_proj[puntos, idx_y],
@@ -1725,12 +1807,11 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                                     color=colors[idx % len(colors)],
                                     line=dict(width=0.5, color='darkgray')
                                 ),
-                                name=f'{clase} (n={n_puntos})',
-                                text=[hover_text[i] for i in range(len(hover_text)) if puntos[i]],
+                                name=f'{nombre_clase} (n={n_puntos})',
+                                text=[hover_text[i].replace(str(clase), nombre_clase) for i in range(len(hover_text)) if puntos[i]],
                                 hoverinfo='text',
                                 legendgroup=f'grupo_{idx}'
                             ))
-                            
                             # Agregar centroide de cada clase
                             data.append(go.Scatter3d(
                                 x=[centroide_x],
@@ -1744,8 +1825,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                                     symbol='diamond',
                                     line=dict(width=2, color='black')
                                 ),
-                                name=f'Centroide {clase}',
-                                text=f'<b>Centroide de {clase}</b><br>{comp_x}: {centroide_x:.3f}<br>{comp_y}: {centroide_y:.3f}<br>{comp_z}: {centroide_z:.3f}',
+                                name=f'Centroide {nombre_clase}',
+                                text=f'<b>Centroide de {nombre_clase}</b><br>{comp_x}: {centroide_x:.3f}<br>{comp_y}: {centroide_y:.3f}<br>{comp_z}: {centroide_z:.3f}',
                                 hoverinfo='text',
                                 legendgroup=f'grupo_{idx}',
                                 showlegend=False
@@ -1967,9 +2048,9 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
                     st.write("#### 🔍 Análisis automático de separación de clases")
                     
+                    class_labels_pca = st.session_state.get("clase_labels_global", {})
                     clases_unicas = df[class_col_pca].unique()
                     n_clases = len(clases_unicas)
-                    
                     # Calcular distancias entre centroides
                     centroides = {}
                     for clase in clases_unicas:
@@ -1979,7 +2060,6 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                             np.mean(X_proj[mask, idx_y]),
                             np.mean(X_proj[mask, idx_z])
                         ]
-                    
                     # Matriz de distancias entre centroides
                     if n_clases > 1:
                         distancias_inter = []
@@ -1990,15 +2070,14 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                                 c2 = np.array(centroides[clase2])
                                 dist = np.linalg.norm(c1 - c2)
                                 distancias_inter.append(dist)
-                                pares_clases.append(f"{clase1} - {clase2}")
-                        
+                                nombre_clase1 = class_labels_pca.get(clase1, str(clase1))
+                                nombre_clase2 = class_labels_pca.get(clase2, str(clase2))
+                                pares_clases.append(f"{nombre_clase1} - {nombre_clase2}")
                         # Mostrar análisis
                         col1_analysis, col2_analysis = st.columns(2)
-                        
                         with col1_analysis:
                             st.metric("Número de clases", n_clases)
                             st.metric("Distancia promedio entre centroides", f"{np.mean(distancias_inter):.2f}")
-                        
                         with col2_analysis:
                             max_dist_idx = np.argmax(distancias_inter)
                             min_dist_idx = np.argmin(distancias_inter)
@@ -2050,14 +2129,16 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             else:
                 # Gráfico 2D interactivo con Plotly
                 if class_col_pca != "(Ninguna)" and class_col_pca in df.columns:
+                    class_labels_pca = st.session_state.get("clase_labels_global", {})
+                    color_labels = df[class_col_pca].map(lambda c: class_labels_pca.get(c, str(c)))
                     fig_pca = px.scatter(
                         x=X_proj[:, idx_x],
                         y=X_proj[:, idx_y],
-                        color=df[class_col_pca].astype(str),
+                        color=color_labels,
                         labels={
                             "x": comp_x,
                             "y": comp_y,
-                            "color": class_col_pca
+                            "color": "Clase"
                         },
                         title=f"PCA - Proyección {comp_x} vs {comp_y}"
                     )
