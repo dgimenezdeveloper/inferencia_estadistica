@@ -8,16 +8,21 @@ Este repositorio contiene los materiales y scripts para la materia de Inferencia
 - pip
 - Recomendado: crear un entorno virtual
 
-## Instalación de dependencias
+
+## Instalación de dependencias y entorno
 
 Desde la raíz del proyecto, ejecuta:
 
 ```bash
 python -m venv env
 source env/bin/activate
-pip install -r bayes-ingenuo/requirements.txt
-pip install -r clase-02/requirements.txt
-pip install -r clase-03/requirements.txt
+pip install -r scripts/requirements.txt
+```
+
+Si no existe un `requirements.txt` global, instala manualmente:
+
+```bash
+pip install streamlit scikit-learn matplotlib seaborn pandas numpy plotly
 ```
 
 ## Estructura de carpetas
@@ -29,16 +34,18 @@ pip install -r clase-03/requirements.txt
 - `clases/`: Material multimedia y textos (no se suben al repo)
 
 
-## Ejecución de la app principal (versión interactiva Streamlit)
 
-La app principal se encuentra en `scripts/app_integrado.py` y permite correr los tres algoritmos desde una sola interfaz didáctica e interactiva.
+## Ejecución de la app principal (Streamlit)
+
+La app principal se encuentra en `scripts/app_integrado.py` y permite ejecutar LDA, QDA, Bayes Ingenuo y PCA desde una sola interfaz interactiva.
 
 ### 1. Instala las dependencias necesarias
 
-Desde la raíz del proyecto, asegúrate de tener activado tu entorno virtual y ejecuta:
+Activa tu entorno virtual y ejecuta:
 
 ```bash
-pip install streamlit scikit-learn matplotlib seaborn pandas numpy plotly
+pip install -r scripts/requirements.txt
+# O instala manualmente los paquetes necesarios
 ```
 
 ### 2. Ejecuta la app con Streamlit
@@ -54,18 +61,18 @@ Esto abrirá la app en tu navegador. Si no se abre automáticamente, copia la UR
 ### 3. ¿Qué puedes hacer en la app?
 
 - Elegir entre Análisis Discriminante (LDA/QDA/Bayes Ingenuo) y Reducción de Dimensiones (PCA)
-- Subir tu propio archivo CSV o usar los datasets de ejemplo
+- Subir tu propio archivo CSV o usar los datasets de ejemplo (`datos/`)
 - Visualizar y comparar resultados de PCA con y sin escalado
-- Ver comparativas didácticas entre PCA y SVD
-- Explorar visualizaciones interactivas 2D/3D y flechas de componentes principales
+- Explorar visualizaciones interactivas 2D/3D
 - Recibir interpretaciones automáticas y recomendaciones sobre tus datos
 
-### 4. Requisitos adicionales
+### 4. Notas y recomendaciones
 
 - Para visualizaciones 3D y FAQ interactivo, asegúrate de tener `plotly` instalado.
 - Si tienes problemas con dependencias, revisa los mensajes de error en la terminal y ejecuta `pip install` para instalar los paquetes faltantes.
 
 ---
+
 
 ## Ejecución de scripts individuales
 
@@ -85,11 +92,16 @@ Cada carpeta contiene scripts independientes para probar cada algoritmo:
   python clase-03/scripts/pca_ejemplo.py
   ```
 
+
 ## Notas
 
-- Los archivos de datos (`.csv`) están incluidos en las carpetas correspondientes.
+- Los archivos de datos (`.csv`) están incluidos en la carpeta `datos/` y subcarpetas específicas de cada algoritmo.
 - Los videos y archivos `.txt` de la carpeta `clases` no se suben al repositorio.
 - Si tienes dudas, revisa los archivos `README.md` de cada subcarpeta para detalles específicos.
+
+---
+
+**¡Listo para comenzar!**
 
 ---
 
