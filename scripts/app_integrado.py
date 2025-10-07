@@ -43,10 +43,14 @@ def calcular_metricas_clasificacion(y_true, y_pred, y_prob=None, class_names=Non
     precision_per_class = precision_score(y_true, y_pred, average=None, zero_division=0)
     recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
     f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
-    
+    # Soporte por clase (cantidad de muestras reales de cada clase)
+    from sklearn.utils.multiclass import unique_labels
+    labels = unique_labels(y_true, y_pred)
+    support_per_class = np.array([(y_true == l).sum() for l in labels])
     metricas['precision_per_class'] = precision_per_class
     metricas['recall_per_class'] = recall_per_class
     metricas['f1_per_class'] = f1_per_class
+    metricas['support_per_class'] = support_per_class
     
     # Matriz de confusión
     cm = confusion_matrix(y_true, y_pred)
@@ -103,14 +107,45 @@ def mostrar_metricas_clasificacion(metricas, titulo="Métricas de Evaluación"):
     
     class_labels_global = st.session_state.get("clase_labels_global", {})
     nombres_clase = [class_labels_global.get(c, str(c)) for c in metricas['class_names']]
+
     tabla_metricas = pd.DataFrame({
         'Clase': nombres_clase,
-        'Precision': [f"{p:.3f}" for p in metricas['precision_per_class']],
-        'Recall': [f"{r:.3f}" for r in metricas['recall_per_class']],
-        'F1-Score': [f"{f:.3f}" for f in metricas['f1_per_class']]
+        'Precision': metricas['precision_per_class'],
+        'Recall': metricas['recall_per_class'],
+        'F1-Score': metricas['f1_per_class'],
+        'Support': metricas.get('support_per_class', [np.nan]*len(nombres_clase))
     })
-    st.dataframe(tabla_metricas, use_container_width=True)
-    
+    # Formatear valores
+    for c in ['Precision','Recall','F1-Score']:
+        tabla_metricas[c] = tabla_metricas[c].apply(lambda x: float(x) if isinstance(x, (float, np.floating, int, np.integer)) else np.nan)
+    # Formato condicional pastel solo para las métricas, no para Support
+    def pastel_metric(val):
+        if pd.isnull(val) or val == 0:
+            return 'background-color: #ffffff; color: #111; font-weight: bold;'
+        if val >= 0.8:
+            color = '#81c784'  # verde pastel saturado
+        elif val >= 0.6:
+            color = '#fff176'  # amarillo pastel saturado
+        elif val > 0.0:
+            color = '#e57373'  # rojo pastel saturado
+        else:
+            color = '#ffffff'
+        return f'background-color: {color}; color: #111; font-weight: bold;'
+    styled = tabla_metricas.style.applymap(pastel_metric, subset=['Precision','Recall','F1-Score'])\
+        .format({'Precision': '{:.3f}', 'Recall': '{:.3f}', 'F1-Score': '{:.3f}', 'Support': '{:.0f}'})
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    # Glosario de colores para la tabla de métricas por clase
+    st.markdown("""
+<div style='margin: 0.5em 0 1em 0; font-size: 0.95em;'>
+<strong>Glosario de colores:</strong><br>
+<span style='background-color:#81c784; color:#111; padding:2px 8px; border-radius:4px;'>🟩 Verde</span> = valor alto (≥ 0.8, buen desempeño)<br>
+<span style='background-color:#fff176; color:#111; padding:2px 8px; border-radius:4px;'>🟨 Amarillo</span> = valor medio (≥ 0.6, aceptable)<br>
+<span style='background-color:#e57373; color:#111; padding:2px 8px; border-radius:4px;'>🟥 Rojo</span> = valor bajo (> 0.0, necesita mejora)<br>
+<span style='background-color:#fff; color:#111; padding:2px 8px; border-radius:4px;'>⬜ Blanco</span> = cero o nulo
+</div>
+""", unsafe_allow_html=True)
+
     # Interpretaciones automáticas
     with st.expander("💡 Interpretación de las métricas"):
         st.markdown(f"""
@@ -971,52 +1006,11 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names)
                 
                 # Curvas ROC (si hay probabilidades disponibles)
-                # (No se agrega explicación aquí porque ya hay interpretación automática en la función de visualización)
+                # Visualización de curvas ROC con Plotly (interactivo)
                 if y_prob is not None and len(class_names) > 1:
-                    st.write("### 📈 Curvas ROC")
-                    
-                    # Preparar datos para ROC
-                    if len(class_names) == 2:
-                        # Clasificación binaria
-                        fpr, tpr, _ = roc_curve(y, y_prob[:, 1])
-                        roc_auc = auc(fpr, tpr)
-                        
-                        fig_roc, ax_roc = plt.subplots(figsize=(8, 6))
-                        ax_roc.plot(fpr, tpr, color='darkorange', lw=2, 
-                                   label=f'ROC curve (AUC = {roc_auc:.3f})')
-                        ax_roc.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-                        ax_roc.set_xlim([0.0, 1.0])
-                        ax_roc.set_ylim([0.0, 1.05])
-                        ax_roc.set_xlabel('Tasa de Falsos Positivos')
-                        ax_roc.set_ylabel('Tasa de Verdaderos Positivos')
-                        ax_roc.set_title('Curva ROC - Clasificación Binaria')
-                        ax_roc.legend(loc="lower right")
-                        ax_roc.grid(True, alpha=0.3)
-                        st.pyplot(fig_roc)
-                        
-                    else:
-                        # Clasificación multiclase - ROC para cada clase vs resto
-                        y_bin = label_binarize(y, classes=model.classes_)
-                        
-                        fig_roc, ax_roc = plt.subplots(figsize=(10, 8))
-                        colors = plt.cm.Set1(np.linspace(0, 1, len(class_names)))
-                        
-                        for i, (class_name, color) in enumerate(zip(class_names, colors)):
-                            fpr, tpr, _ = roc_curve(y_bin[:, i], y_prob[:, i])
-                            roc_auc = auc(fpr, tpr)
-                            ax_roc.plot(fpr, tpr, color=color, lw=2,
-                                       label=f'{class_name} (AUC = {roc_auc:.3f})')
-                        
-                        ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
-                        ax_roc.set_xlim([0.0, 1.0])
-                        ax_roc.set_ylim([0.0, 1.05])
-                        ax_roc.set_xlabel('Tasa de Falsos Positivos')
-                        ax_roc.set_ylabel('Tasa de Verdaderos Positivos')
-                        ax_roc.set_title('Curvas ROC - Clasificación Multiclase (One-vs-Rest)')
-                        ax_roc.legend(loc="lower right")
-                        ax_roc.grid(True, alpha=0.3)
-                        st.pyplot(fig_roc)
-                    
+                    st.write("### 📈 Curvas ROC Interactivas")
+                    fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names)
+                    st.plotly_chart(fig_roc, use_container_width=True)
                     # Interpretación del AUC
                     if metricas.get('roc_auc'):
                         auc_val = metricas['roc_auc']
