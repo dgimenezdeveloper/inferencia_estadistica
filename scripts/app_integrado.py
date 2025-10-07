@@ -169,8 +169,13 @@ def visualizar_matriz_confusion_mejorada(cm, class_names, titulo="Matriz de Conf
     """
     Crea una visualización mejorada de la matriz de confusión
     """
-    # Calcular porcentajes
-    cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+    # Calcular porcentajes por fila, manejando filas vacías
+    row_sums = cm.sum(axis=1, keepdims=True)
+    # Evitar división por cero: si la suma es 0, dejar la fila en 0
+    row_sums[row_sums == 0] = 1
+    cm_percent = cm.astype('float') / row_sums * 100
+    # Opcional: redondear a 1 decimal para visualización
+    cm_percent = np.round(cm_percent, 1)
     
     # Crear figura con subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
@@ -188,6 +193,14 @@ def visualizar_matriz_confusion_mejorada(cm, class_names, titulo="Matriz de Conf
     ax2.set_title('Matriz de Confusión (Porcentajes)')
     ax2.set_xlabel('Predicción')
     ax2.set_ylabel('Real')
+    # Mostrar suma de cada fila (debería ser 100%)
+    percent_sums = cm_percent.sum(axis=1)
+    for i, total in enumerate(percent_sums):
+        ax2.text(len(class_names), i + 0.5, f"{total:.1f}", va='center', ha='left', color='black', fontsize=9, fontweight='bold')
+    ax2.set_xlim(-0.5, len(class_names) + 0.5)
+    # Etiqueta para la suma
+    ax2.set_xticks(list(ax2.get_xticks()) + [len(class_names)])
+    ax2.set_xticklabels(list(class_names) + ['Σ'], rotation=45 if len(class_names) > 3 else 0)
     
     plt.tight_layout()
     st.pyplot(fig)
