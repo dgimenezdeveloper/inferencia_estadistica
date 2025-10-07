@@ -152,6 +152,7 @@ feature_cols = st.multiselect(
 )
 
 if feature_cols and target_col:
+
     X = df[feature_cols]
     y = df[target_col]
 
@@ -160,32 +161,62 @@ if feature_cols and target_col:
         st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
         X = X.fillna(X.mean())
 
-    # Ingreso manual de datos
-    st.write("### Ingresa una observación para predecir la clase")
-    nueva_obs = []
-    for col in feature_cols:
-        val = st.number_input(f"{col}", min_value=float(df[col].min()), max_value=float(df[col].max()), value=float(df[col].mean()))
-        nueva_obs.append(val)
-    nueva_obs = [nueva_obs]
+    # Opción para aplicar PCA antes de entrenar
+    usar_pca = st.checkbox("¿Aplicar reducción de dimensionalidad (PCA) antes de entrenar?", value=False)
+    n_comp_pca = min(len(feature_cols), 5)
+    if 'n_comp_pca' in st.session_state:
+        n_comp_pca = min(st.session_state['n_comp_pca'], len(feature_cols))
+    if usar_pca:
+        from sklearn.decomposition import PCA
+        from sklearn.preprocessing import StandardScaler
+        n_comp = st.slider("Cantidad de componentes principales para PCA", min_value=2, max_value=len(feature_cols), value=n_comp_pca, key="slider_pca_clasif")
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        pca = PCA(n_components=n_comp)
+        X_pca = pca.fit_transform(X_scaled)
+        varianza_acum = np.cumsum(pca.explained_variance_ratio_)[-1]
+        st.info(f"Varianza acumulada explicada por {n_comp} componentes: {varianza_acum:.2%}")
+        X_model = X_pca
+        # Para la nueva observación
+        st.write("### Ingresa una observación para predecir la clase (PCA)")
+        nueva_obs = []
+        for col in feature_cols:
+            val = st.number_input(f"{col}", min_value=float(df[col].min()), max_value=float(df[col].max()), value=float(df[col].mean()), key=f"input_{col}_pca")
+            nueva_obs.append(val)
+        nueva_obs = [nueva_obs]
+        nueva_obs_scaled = scaler.transform(nueva_obs)
+        nueva_obs_pca = pca.transform(nueva_obs_scaled)
+    else:
+        X_model = X
+        st.write("### Ingresa una observación para predecir la clase")
+        nueva_obs = []
+        for col in feature_cols:
+            val = st.number_input(f"{col}", min_value=float(df[col].min()), max_value=float(df[col].max()), value=float(df[col].mean()), key=f"input_{col}_no_pca")
+            nueva_obs.append(val)
+        nueva_obs = [nueva_obs]
 
     # Entrenamiento y predicción
     if algoritmo == "LDA":
         model = LinearDiscriminantAnalysis()
     else:
         model = QuadraticDiscriminantAnalysis()
-    model.fit(X, y)
-    prediccion = model.predict(nueva_obs)
+    model.fit(X_model, y)
+    if usar_pca:
+        prediccion = model.predict(nueva_obs_pca)
+    else:
+        prediccion = model.predict(nueva_obs)
 
     if st.button("Predecir clase"):
         st.success(f"Predicción para {nueva_obs}: {prediccion[0]}")
         st.write(f"Algoritmo usado: {algoritmo}")
-
+        if usar_pca:
+            st.info(f"Se aplicó PCA con {n_comp} componentes antes de entrenar el modelo.")
 
     # Métrica de desempeño
     min_samples_per_class = y.value_counts().min()
     cv_splits = min(5, min_samples_per_class) if min_samples_per_class >= 2 else None
     if cv_splits and cv_splits >= 2:
-        scores = cross_val_score(model, X, y, scoring='accuracy', cv=cv_splits)
+        scores = cross_val_score(model, X_model, y, scoring='accuracy', cv=cv_splits)
         st.write(f"Precisión promedio ({algoritmo}, cv={cv_splits}): {np.mean(scores):.2f}")
     else:
         st.warning("No se puede calcular validación cruzada (cross-validation) porque alguna clase tiene menos de 2 muestras.")
@@ -193,7 +224,7 @@ if feature_cols and target_col:
     # Visualización avanzada
     st.write("### Matriz de confusión")
     st.info("La matriz de confusión muestra cuántos elementos de cada clase fueron correctamente o incorrectamente clasificados. Idealmente, los valores altos deben estar en la diagonal.")
-    y_pred = model.predict(X)
+    y_pred = model.predict(X_model)
     cm = confusion_matrix(y, y_pred)
     fig, ax = plt.subplots()
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)

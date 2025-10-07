@@ -1,3 +1,11 @@
+def formato_matriz(valor):
+    """Formatea valores para matrices: normal si es habitual, notación científica si es muy pequeño/grande."""
+    if pd.isnull(valor):
+        return ""
+    if abs(valor) >= 0.01 and abs(valor) < 1000:
+        return f"{valor:.2f}"
+    else:
+        return f"{valor:.2e}"
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -514,9 +522,24 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 if X.isnull().values.any():
                     st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
                     X = X.fillna(X.mean())
+                # Opción para aplicar PCA antes de entrenar
+                usar_pca = st.checkbox("¿Aplicar reducción de dimensionalidad (PCA) antes de entrenar?", value=False, key="pca_bayes")
+                n_comp_pca = min(len(feature_cols), 5)
+                if 'n_comp_pca' in st.session_state:
+                    n_comp_pca = min(st.session_state['n_comp_pca'], len(feature_cols))
+                if usar_pca:
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X)
+                    n_comp = st.slider("Cantidad de componentes principales para PCA", min_value=2, max_value=len(feature_cols), value=n_comp_pca, key="slider_pca_bayes")
+                    pca = PCA(n_components=n_comp)
+                    X_model = pca.fit_transform(X_scaled)
+                    varianza_acum = np.cumsum(pca.explained_variance_ratio_)[-1]
+                    st.info(f"Varianza acumulada explicada por {n_comp} componentes: {varianza_acum:.2%}")
+                else:
+                    X_model = X
                 from sklearn.naive_bayes import GaussianNB
                 model = GaussianNB()
-                model.fit(X, y)
+                model.fit(X_model, y)
                 with st.expander("2️⃣ Predicción interactiva y probabilidades por clase", expanded=True):
                     st.write("### Ingresa una observación para predecir la clase")
                     st.info("""
@@ -550,8 +573,14 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         with col4:
                             st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
                     nueva_obs = [nueva_obs]
-                    prediccion = model.predict(nueva_obs)
-                    probas = model.predict_proba(nueva_obs)[0]
+                    if usar_pca:
+                        nueva_obs_scaled = scaler.transform(nueva_obs)
+                        nueva_obs_pca = pca.transform(nueva_obs_scaled)
+                        prediccion = model.predict(nueva_obs_pca)
+                        probas = model.predict_proba(nueva_obs_pca)[0]
+                    else:
+                        prediccion = model.predict(nueva_obs)
+                        probas = model.predict_proba(nueva_obs)[0]
                     class_names = [str(c) for c in model.classes_]
                     # Botón solo para feedback visual, pero la predicción es reactiva
                     st.button("Predecir clase", key="btn_pred_bayes")
@@ -559,6 +588,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     class_labels_global = st.session_state.get("clase_labels_global", {})
                     nombre_prediccion = class_labels_global.get(prediccion[0], str(prediccion[0]))
                     st.success(f"Predicción: {nombre_prediccion}")
+                    if usar_pca:
+                        st.info(f"Se aplicó PCA con {n_comp} componentes antes de entrenar el modelo.")
                     with st.expander("Ver probabilidades por clase", expanded=True):
                         st.write("#### Probabilidades por clase para la observación ingresada:")
                         st.caption("""
@@ -626,11 +657,12 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     - Incluye métricas globales y por clase, matriz de confusión y reportes detallados.
                     - Útil para comparar con otros modelos y detectar posibles problemas.
                     """)
-                    y_pred = model.predict(X)
+                    X_eval = X_model if usar_pca else X
+                    y_pred = model.predict(X_eval)
                     y_prob = None
                     try:
                         if hasattr(model, 'predict_proba'):
-                            y_prob = model.predict_proba(X)
+                            y_prob = model.predict_proba(X_eval)
                     except:
                         y_prob = None
                     class_labels_global = st.session_state.get("clase_labels_global", {})
@@ -780,22 +812,48 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 if X.isnull().values.any():
                     st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
                     X = X.fillna(X.mean())
+                # Opción para aplicar PCA antes de entrenar
+                usar_pca = st.checkbox("¿Aplicar reducción de dimensionalidad (PCA) antes de entrenar?", value=False, key="pca_lda_qda")
+                n_comp_pca = min(len(feature_cols), 5)
+                if 'n_comp_pca' in st.session_state:
+                    n_comp_pca = min(st.session_state['n_comp_pca'], len(feature_cols))
+                if usar_pca:
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X)
+                    n_comp = st.slider("Cantidad de componentes principales para PCA", min_value=2, max_value=len(feature_cols), value=n_comp_pca, key="slider_pca_lda_qda")
+                    pca = PCA(n_components=n_comp)
+                    X_model = pca.fit_transform(X_scaled)
+                    varianza_acum = np.cumsum(pca.explained_variance_ratio_)[-1]
+                    st.info(f"Varianza acumulada explicada por {n_comp} componentes: {varianza_acum:.2%}")
+                else:
+                    X_model = X
                 algoritmo = st.selectbox("Selecciona el algoritmo", ["LDA", "QDA"])
                 if algoritmo == "LDA":
                     model = LinearDiscriminantAnalysis(store_covariance=True)
                 elif algoritmo == "QDA":
                     model = QuadraticDiscriminantAnalysis(store_covariance=True)
-                model.fit(X, y)
+                model.fit(X_model, y)
                 # Mostrar matriz de covarianza estimada por el modelo (solo LDA/QDA)
                 if algoritmo in ["LDA", "QDA"]:
                     st.write(f"### Matriz de covarianza estimada por el modelo ({algoritmo})")
                     import seaborn as sns
                     if algoritmo == "LDA":
                         cov_matrix = model.covariance_
-                        df_cov = pd.DataFrame(cov_matrix, index=feature_cols, columns=feature_cols)
-                        st.write(df_cov)
+                        if usar_pca:
+                            pc_names = [f"PC{i+1}" for i in range(cov_matrix.shape[0])]
+                            df_cov = pd.DataFrame(cov_matrix, index=pc_names, columns=pc_names)
+                        else:
+                            df_cov = pd.DataFrame(cov_matrix, index=feature_cols, columns=feature_cols)
+                        st.dataframe(df_cov.style.format(formato_matriz), use_container_width=True)
                         fig_cov, ax_cov = plt.subplots(figsize=(8, 6))
-                        sns.heatmap(df_cov, annot=True, fmt='.2f', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":8})
+                        sns.heatmap(df_cov, annot=True, fmt='', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":10, "color":"black", "weight":"bold"}, cbar_kws={"shrink":0.8})
+                        for t in ax_cov.texts:
+                            val = float(t.get_text())
+                            t.set_text(formato_matriz(val))
+                            if 'e' in t.get_text():
+                                t.set_fontsize(11)
+                                t.set_color('darkred')
+                                t.set_weight('bold')
                         ax_cov.set_title('Heatmap matriz de covarianza (LDA)', fontsize=14)
                         ax_cov.set_xticklabels(ax_cov.get_xticklabels(), rotation=45, ha='right', fontsize=9)
                         ax_cov.set_yticklabels(ax_cov.get_yticklabels(), rotation=0, fontsize=9)
@@ -806,10 +864,21 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         cov_matrices = model.covariance_
                         for i, cov in enumerate(cov_matrices):
                             st.write(f"Clase {model.classes_[i]}")
-                            df_cov = pd.DataFrame(cov, index=feature_cols, columns=feature_cols)
-                            st.write(df_cov)
+                            if usar_pca:
+                                pc_names = [f"PC{i+1}" for i in range(cov.shape[0])]
+                                df_cov = pd.DataFrame(cov, index=pc_names, columns=pc_names)
+                            else:
+                                df_cov = pd.DataFrame(cov, index=feature_cols, columns=feature_cols)
+                            st.dataframe(df_cov.style.format(formato_matriz), use_container_width=True)
                             fig_cov, ax_cov = plt.subplots(figsize=(8, 6))
-                            sns.heatmap(df_cov, annot=True, fmt='.2f', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":8})
+                            sns.heatmap(df_cov, annot=True, fmt='', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":10, "color":"black", "weight":"bold"}, cbar_kws={"shrink":0.8})
+                            for t in ax_cov.texts:
+                                val = float(t.get_text())
+                                t.set_text(formato_matriz(val))
+                                if 'e' in t.get_text():
+                                    t.set_fontsize(11)
+                                    t.set_color('darkred')
+                                    t.set_weight('bold')
                             ax_cov.set_title(f'Heatmap matriz de covarianza (QDA) - Clase {model.classes_[i]}', fontsize=14)
                             ax_cov.set_xticklabels(ax_cov.get_xticklabels(), rotation=45, ha='right', fontsize=9)
                             ax_cov.set_yticklabels(ax_cov.get_yticklabels(), rotation=0, fontsize=9)
@@ -841,13 +910,15 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     with col4:
                         st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
                 nueva_obs = [nueva_obs]
-                prediccion = model.predict(nueva_obs)
-                probas = None
-                if hasattr(model, 'predict_proba'):
-                    try:
-                        probas = model.predict_proba(nueva_obs)[0]
-                    except Exception:
-                        probas = None
+                if usar_pca:
+                    nueva_obs_scaled = scaler.transform(nueva_obs)
+                    nueva_obs_pca = pca.transform(nueva_obs_scaled)
+                    prediccion = model.predict(nueva_obs_pca)
+                    probas = model.predict_proba(nueva_obs_pca)[0] if hasattr(model, 'predict_proba') else None
+                    st.info(f"Se aplicó PCA con {n_comp} componentes antes de entrenar el modelo.")
+                else:
+                    prediccion = model.predict(nueva_obs)
+                    probas = model.predict_proba(nueva_obs)[0] if hasattr(model, 'predict_proba') else None
                 if st.button("Predecir clase"):
                     st.caption("""
                     **¿Qué significa esto?**
@@ -899,8 +970,6 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                                 width=600, height=400
                             )
                             st.plotly_chart(fig_proba, use_container_width=True)
-                    if algoritmo == "Bayes Ingenuo":
-                        st.info("Bayes Ingenuo (Naive Bayes) es un clasificador probabilístico basado en la regla de Bayes y la independencia entre atributos.")
                 # ======== EVALUACIÓN COMPLETA DEL MODELO ========
                 st.write("## 📊 Evaluación del Modelo")
                 st.info("""
@@ -1426,6 +1495,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
         varianza_deseada = st.slider("Porcentaje mínimo de varianza acumulada a conservar", min_value=50, max_value=99, value=80, step=1)
         if feature_cols_pca:
             st.info("Las siglas 'PC' significan 'Principal Component' o 'Componente Principal'. Por ejemplo, PC1 es el primer componente principal, PC2 el segundo, y así sucesivamente. Cada uno es una combinación lineal de las variables originales que explica una parte de la varianza total del dataset.")
+
             X_pca = df[feature_cols_pca]
             if X_pca.isnull().values.any():
                 st.warning("Se encontraron valores faltantes en las columnas seleccionadas para PCA. Imputando con la media de cada columna...")
@@ -1451,6 +1521,29 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 var_exp_pct = [f"PC{i+1}: {v*100:.2f}%" for i, v in enumerate(var_exp)]
                 st.write(", ".join(var_exp_pct))
                 st.write(f"**Varianza acumulada:** {np.sum(var_exp)*100:.2f}%")
+
+                # Mostrar matriz de covarianza de los datos transformados por PCA (solo si X_proj existe)
+                st.write("### Matriz de covarianza de los datos transformados por PCA")
+                cov_pca = np.cov(X_proj.T)
+                pc_names = [f"PC{i+1}" for i in range(X_proj.shape[1])]
+                df_cov_pca = pd.DataFrame(cov_pca, index=pc_names, columns=pc_names)
+                st.dataframe(df_cov_pca.style.format(formato_matriz), use_container_width=True)
+                # Heatmap visual
+                fig_cov_pca, ax_cov_pca = plt.subplots(figsize=(6, 5))
+                sns.heatmap(df_cov_pca, annot=True, fmt='', cmap='YlGnBu', ax=ax_cov_pca, annot_kws={"size":10, "color":"black", "weight":"bold"}, cbar_kws={"shrink":0.8})
+                for t in ax_cov_pca.texts:
+                    val = float(t.get_text())
+                    t.set_text(formato_matriz(val))
+                    if 'e' in t.get_text():
+                        t.set_fontsize(11)
+                        t.set_color('darkred')
+                        t.set_weight('bold')
+                ax_cov_pca.set_title('Heatmap matriz de covarianza (PCA transformados)', fontsize=13)
+                ax_cov_pca.set_xticklabels(ax_cov_pca.get_xticklabels(), rotation=45, ha='right', fontsize=9)
+                ax_cov_pca.set_yticklabels(ax_cov_pca.get_yticklabels(), rotation=0, fontsize=9)
+                fig_cov_pca.tight_layout()
+                st.pyplot(fig_cov_pca)
+                st.caption("La matriz de covarianza de los componentes principales debe ser diagonal (o casi), con valores fuera de la diagonal cercanos a cero (en notación científica). Esto confirma que los PCs son ortogonales y no correlacionados.")
                 # Ejemplo de PCA sin escalado y comparación visual
                 with st.expander("Comparación: PCA con y sin escalado de variables"):
                     st.markdown("""
@@ -1544,12 +1637,19 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             st.write("### Matriz de covarianza de los datos originales")
             cov_matrix = np.cov(X_pca.T)
             df_cov = pd.DataFrame(cov_matrix, index=feature_cols_pca, columns=feature_cols_pca)
-            st.write(df_cov)
+            st.dataframe(df_cov.style.format(formato_matriz), use_container_width=True)
             st.caption("La matriz de covarianza muestra cómo varían conjuntamente las variables originales. Valores altos indican que dos variables tienden a aumentar o disminuir juntas.")
             st.info("¿Para qué sirve? Permite identificar relaciones y dependencias entre variables. Es la base matemática de PCA y ayuda a detectar variables redundantes o muy correlacionadas.")
             import seaborn as sns
             fig_cov, ax_cov = plt.subplots(figsize=(8, 6))
-            sns.heatmap(df_cov, annot=True, fmt='.2f', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":8})
+            sns.heatmap(df_cov, annot=True, fmt='', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":10, "color":"black", "weight":"bold"}, cbar_kws={"shrink":0.8})
+            for t in ax_cov.texts:
+                val = float(t.get_text())
+                t.set_text(formato_matriz(val))
+                if 'e' in t.get_text():
+                    t.set_fontsize(11)
+                    t.set_color('darkred')
+                    t.set_weight('bold')
             ax_cov.set_title('Heatmap matriz de covarianza (PCA)', fontsize=14)
             ax_cov.set_xticklabels(ax_cov.get_xticklabels(), rotation=45, ha='right', fontsize=9)
             ax_cov.set_yticklabels(ax_cov.get_yticklabels(), rotation=0, fontsize=9)
@@ -1559,7 +1659,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             st.write("### Matriz de correlación de los datos originales")
             corr_matrix = np.corrcoef(X_pca.T)
             df_corr = pd.DataFrame(corr_matrix, index=feature_cols_pca, columns=feature_cols_pca)
-            st.write(df_corr)
+            st.dataframe(df_corr.style.format(formato_matriz), use_container_width=True)
             st.caption("La matriz de correlación muestra la relación lineal entre variables, normalizada entre -1 y 1. Valores cercanos a +1 o -1 indican fuerte relación positiva o negativa.")
             st.info("¿Para qué sirve? Permite identificar variables que están muy relacionadas (redundantes) y ayuda a decidir qué variables pueden ser eliminadas o combinadas.")
             # Recomendación automática de variables redundantes
@@ -1576,7 +1676,14 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     st.write(f"- **{var1}** y **{var2}** (correlación: {corr:.2f})")
                 st.caption("Puedes considerar eliminar o combinar estas variables para simplificar el análisis, ya que aportan información muy similar.")
             fig_corr, ax_corr = plt.subplots(figsize=(8, 6))
-            sns.heatmap(df_corr, annot=True, fmt='.2f', cmap='coolwarm', ax=ax_corr, center=0, annot_kws={"size":8})
+            sns.heatmap(df_corr, annot=True, fmt='', cmap='coolwarm', ax=ax_corr, center=0, annot_kws={"size":10, "color":"black", "weight":"bold"}, cbar_kws={"shrink":0.8})
+            for t in ax_corr.texts:
+                val = float(t.get_text())
+                t.set_text(formato_matriz(val))
+                if 'e' in t.get_text():
+                    t.set_fontsize(11)
+                    t.set_color('darkred')
+                    t.set_weight('bold')
             ax_corr.set_title('Heatmap matriz de correlación (PCA)', fontsize=14)
             ax_corr.set_xticklabels(ax_corr.get_xticklabels(), rotation=45, ha='right', fontsize=9)
             ax_corr.set_yticklabels(ax_corr.get_yticklabels(), rotation=0, fontsize=9)
