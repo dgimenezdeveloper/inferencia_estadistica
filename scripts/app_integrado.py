@@ -508,15 +508,34 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             Son las variables que el modelo usará para predecir la clase. Deben ser numéricas (por ejemplo: 'edad', 'alcohol', 'longitud').
             Elige aquellas que creas relevantes para la predicción. Puedes seleccionar varias.
             """)
+            # Opción de preprocesamiento PCA
+            usar_pca = st.checkbox("Aplicar reducción de dimensiones (PCA) como preprocesamiento", value=False, key="usar_pca_bayes")
+            if usar_pca and feature_cols:
+                st.info("PCA es una técnica de preprocesamiento no supervisado que transforma las variables originales en componentes principales, conservando la mayor parte de la información. Úsalo para reducir la dimensionalidad antes de entrenar el modelo.")
+                varianza_pca = st.slider("Porcentaje mínimo de varianza acumulada a conservar (PCA)", min_value=50, max_value=99, value=80, step=1, key="varianza_pca_bayes")
             if feature_cols and target_col:
                 X = df[feature_cols]
                 y = df[target_col]
                 if X.isnull().values.any():
                     st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
                     X = X.fillna(X.mean())
+                # Preprocesamiento PCA si corresponde
+                if usar_pca:
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X)
+                    pca_full = PCA(n_components=min(X.shape[0], X.shape[1]))
+                    pca_full.fit(X_scaled)
+                    var_acum = np.cumsum(pca_full.explained_variance_ratio_)
+                    n_comp = np.argmax(var_acum >= varianza_pca/100) + 1
+                    pca = PCA(n_components=n_comp)
+                    X_pca = pca.fit_transform(X_scaled)
+                    X_model = X_pca
+                    st.success(f"PCA aplicado: {n_comp} componentes principales conservan al menos {varianza_pca}% de la varianza.")
+                else:
+                    X_model = X
                 from sklearn.naive_bayes import GaussianNB
                 model = GaussianNB()
-                model.fit(X, y)
+                model.fit(X_model, y)
                 with st.expander("2️⃣ Predicción interactiva y probabilidades por clase", expanded=True):
                     st.write("### Ingresa una observación para predecir la clase")
                     st.info("""
@@ -550,8 +569,15 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         with col4:
                             st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
                     nueva_obs = [nueva_obs]
-                    prediccion = model.predict(nueva_obs)
-                    probas = model.predict_proba(nueva_obs)[0]
+                    # Si se usó PCA, transformar la observación
+                    if usar_pca:
+                        nueva_obs_scaled = scaler.transform(nueva_obs)
+                        nueva_obs_pca = pca.transform(nueva_obs_scaled)
+                        obs_model = nueva_obs_pca
+                    else:
+                        obs_model = nueva_obs
+                    prediccion = model.predict(obs_model)
+                    probas = model.predict_proba(obs_model)[0]
                     class_names = [str(c) for c in model.classes_]
                     # Botón solo para feedback visual, pero la predicción es reactiva
                     st.button("Predecir clase", key="btn_pred_bayes")
@@ -626,11 +652,11 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     - Incluye métricas globales y por clase, matriz de confusión y reportes detallados.
                     - Útil para comparar con otros modelos y detectar posibles problemas.
                     """)
-                    y_pred = model.predict(X)
+                    y_pred = model.predict(X_model)
                     y_prob = None
                     try:
                         if hasattr(model, 'predict_proba'):
-                            y_prob = model.predict_proba(X)
+                            y_prob = model.predict_proba(X_model)
                     except:
                         y_prob = None
                     class_labels_global = st.session_state.get("clase_labels_global", {})
@@ -774,25 +800,49 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 [c for c in num_cols if c != target_col],
                 default=[c for c in num_cols if c != target_col]
             )
+            # Opción de preprocesamiento PCA
+            usar_pca = st.checkbox("Aplicar reducción de dimensiones (PCA) como preprocesamiento", value=False, key="usar_pca_ldaqda")
+            if usar_pca and feature_cols:
+                st.info("PCA es una técnica de preprocesamiento no supervisado que transforma las variables originales en componentes principales, conservando la mayor parte de la información. Úsalo para reducir la dimensionalidad antes de entrenar el modelo.")
+                varianza_pca = st.slider("Porcentaje mínimo de varianza acumulada a conservar (PCA)", min_value=50, max_value=99, value=80, step=1, key="varianza_pca_ldaqda")
             if feature_cols and target_col:
                 X = df[feature_cols]
                 y = df[target_col]
                 if X.isnull().values.any():
                     st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
                     X = X.fillna(X.mean())
+                # Preprocesamiento PCA si corresponde
+                if usar_pca:
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X)
+                    pca_full = PCA(n_components=min(X.shape[0], X.shape[1]))
+                    pca_full.fit(X_scaled)
+                    var_acum = np.cumsum(pca_full.explained_variance_ratio_)
+                    n_comp = np.argmax(var_acum >= varianza_pca/100) + 1
+                    pca = PCA(n_components=n_comp)
+                    X_pca = pca.fit_transform(X_scaled)
+                    X_model = X_pca
+                    st.success(f"PCA aplicado: {n_comp} componentes principales conservan al menos {varianza_pca}% de la varianza.")
+                else:
+                    X_model = X
                 algoritmo = st.selectbox("Selecciona el algoritmo", ["LDA", "QDA"])
                 if algoritmo == "LDA":
                     model = LinearDiscriminantAnalysis(store_covariance=True)
                 elif algoritmo == "QDA":
                     model = QuadraticDiscriminantAnalysis(store_covariance=True)
-                model.fit(X, y)
+                model.fit(X_model, y)
                 # Mostrar matriz de covarianza estimada por el modelo (solo LDA/QDA)
                 if algoritmo in ["LDA", "QDA"]:
                     st.write(f"### Matriz de covarianza estimada por el modelo ({algoritmo})")
                     import seaborn as sns
+                    # Determinar nombres de columnas para la matriz de covarianza
+                    if usar_pca and 'n_comp' in locals():
+                        nombres_cov = [f"PC{i+1}" for i in range(n_comp)]
+                    else:
+                        nombres_cov = feature_cols
                     if algoritmo == "LDA":
                         cov_matrix = model.covariance_
-                        df_cov = pd.DataFrame(cov_matrix, index=feature_cols, columns=feature_cols)
+                        df_cov = pd.DataFrame(cov_matrix, index=nombres_cov, columns=nombres_cov)
                         st.write(df_cov)
                         fig_cov, ax_cov = plt.subplots(figsize=(8, 6))
                         sns.heatmap(df_cov, annot=True, fmt='.2f', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":8})
@@ -806,7 +856,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         cov_matrices = model.covariance_
                         for i, cov in enumerate(cov_matrices):
                             st.write(f"Clase {model.classes_[i]}")
-                            df_cov = pd.DataFrame(cov, index=feature_cols, columns=feature_cols)
+                            df_cov = pd.DataFrame(cov, index=nombres_cov, columns=nombres_cov)
                             st.write(df_cov)
                             fig_cov, ax_cov = plt.subplots(figsize=(8, 6))
                             sns.heatmap(df_cov, annot=True, fmt='.2f', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":8})
@@ -841,11 +891,18 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     with col4:
                         st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
                 nueva_obs = [nueva_obs]
-                prediccion = model.predict(nueva_obs)
+                # Si se usó PCA, transformar la observación
+                if usar_pca:
+                    nueva_obs_scaled = scaler.transform(nueva_obs)
+                    nueva_obs_pca = pca.transform(nueva_obs_scaled)
+                    obs_model = nueva_obs_pca
+                else:
+                    obs_model = nueva_obs
+                prediccion = model.predict(obs_model)
                 probas = None
                 if hasattr(model, 'predict_proba'):
                     try:
-                        probas = model.predict_proba(nueva_obs)[0]
+                        probas = model.predict_proba(obs_model)[0]
                     except Exception:
                         probas = None
                 if st.button("Predecir clase"):
@@ -914,16 +971,16 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 """)
                 
                 # Predicciones
-                y_pred = model.predict(X)
+                y_pred = model.predict(X_model)
                 
                 # Obtener probabilidades si es posible
                 y_prob = None
                 try:
                     if hasattr(model, 'predict_proba'):
-                        y_prob = model.predict_proba(X)
+                        y_prob = model.predict_proba(X_model)
                     elif hasattr(model, 'decision_function'):
                         # Para modelos como SVM que usan decision_function
-                        decision_scores = model.decision_function(X)
+                        decision_scores = model.decision_function(X_model)
                         if decision_scores.ndim == 1:
                             # Clasificación binaria
                             y_prob = np.column_stack([1-decision_scores, decision_scores])
@@ -954,7 +1011,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                                                    ('Precision', 'precision_macro'), 
                                                    ('Recall', 'recall_macro'), 
                                                    ('F1-Score', 'f1_macro')]:
-                        scores = cross_val_score(model, X, y, scoring=metric_str, cv=cv_splits)
+                        scores = cross_val_score(model, X_model, y, scoring=metric_str, cv=cv_splits)
                         cv_scores[metric_name] = scores
                     
                     # Mostrar resultados de CV en columnas
@@ -1133,14 +1190,14 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         for nombre, modelo in algoritmos_comparar.items():
                             try:
                                 # Entrenar modelo
-                                modelo.fit(X, y)
-                                y_pred_comp = modelo.predict(X)
+                                modelo.fit(X_model, y)
+                                y_pred_comp = modelo.predict(X_model)
                                 
                                 # Obtener probabilidades
                                 y_prob_comp = None
                                 try:
                                     if hasattr(modelo, 'predict_proba'):
-                                        y_prob_comp = modelo.predict_proba(X)
+                                        y_prob_comp = modelo.predict_proba(X_model)
                                 except:
                                     pass
                                 
@@ -1151,7 +1208,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                                 cv_accuracy = None
                                 if cv_splits and cv_splits >= 2:
                                     try:
-                                        cv_scores = cross_val_score(modelo, X, y, cv=cv_splits, scoring='accuracy')
+                                        cv_scores = cross_val_score(modelo, X_model, y, cv=cv_splits, scoring='accuracy')
                                         cv_accuracy = np.mean(cv_scores)
                                     except:
                                         pass
