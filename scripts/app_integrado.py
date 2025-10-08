@@ -15,364 +15,45 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticD
 import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
+
+from metricas import (
+    calcular_metricas_clasificacion,
+    mostrar_metricas_clasificacion,
+    visualizar_matriz_confusion_mejorada,
+    crear_curvas_roc_interactivas,
+    calcular_metricas_regresion
+)
 from plotly.subplots import make_subplots
+from preprocesamiento import (
+    cargar_dataset,
+    seleccionar_columnas,
+    manejar_nulos,
+    escalar_datos,
+    aplicar_pca,
+)
+from visualizaciones import plot_metricas_por_clase
+from textos_ayuda import (
+    TEXTO_BAYES,
+    TEXTO_LDA_QDA,
+    TEXTO_PCA,
+    GUIA_USO,
+    METRICAS_EXPLICADAS,
+    BAYES_EXPLICADO,
+    PCA_SIDEBAR,
+    CONFIG_AVANZADA,
+)
+from modelos import (
+    entrenar_bayes,
+    entrenar_lda,
+    entrenar_qda,
+    predecir,
+)
 
-# Función para calcular métricas de evaluación completas
-def calcular_metricas_clasificacion(y_true, y_pred, y_prob=None, class_names=None):
-    """
-    Calcula todas las métricas de evaluación para clasificación
-    
-    Args:
-        y_true: Etiquetas verdaderas
-        y_pred: Predicciones del modelo
-        y_prob: Probabilidades predichas (opcional, para ROC)
-        class_names: Nombres de las clases (opcional)
-    
-    Returns:
-        dict: Diccionario con todas las métricas
-    """
-    metricas = {}
-    
-    # Métricas básicas
-    metricas['accuracy'] = accuracy_score(y_true, y_pred)
-    metricas['precision_macro'] = precision_score(y_true, y_pred, average='macro', zero_division=0)
-    metricas['recall_macro'] = recall_score(y_true, y_pred, average='macro', zero_division=0)
-    metricas['f1_macro'] = f1_score(y_true, y_pred, average='macro', zero_division=0)
-    
-    # Métricas por clase
-    precision_per_class = precision_score(y_true, y_pred, average=None, zero_division=0)
-    recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
-    f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
-    # Soporte por clase (cantidad de muestras reales de cada clase)
-    from sklearn.utils.multiclass import unique_labels
-    labels = unique_labels(y_true, y_pred)
-    support_per_class = np.array([(y_true == l).sum() for l in labels])
-    metricas['precision_per_class'] = precision_per_class
-    metricas['recall_per_class'] = recall_per_class
-    metricas['f1_per_class'] = f1_per_class
-    metricas['support_per_class'] = support_per_class
-    
-    # Matriz de confusión
-    cm = confusion_matrix(y_true, y_pred)
-    metricas['confusion_matrix'] = cm
-    
-    # ROC-AUC (si se proporcionan probabilidades)
-    if y_prob is not None:
-        try:
-            classes = np.unique(y_true)
-            if len(classes) == 2:
-                # Clasificación binaria
-                metricas['roc_auc'] = roc_auc_score(y_true, y_prob[:, 1])
-            else:
-                # Clasificación multiclase
-                y_true_bin = label_binarize(y_true, classes=classes)
-                metricas['roc_auc'] = roc_auc_score(y_true_bin, y_prob, multi_class='ovr', average='macro')
-        except:
-            metricas['roc_auc'] = None
-    
-    # Nombres de clases
-    # Usar nombres descriptivos si existen en session_state
-    labels_map = st.session_state.get("clase_labels_global", {})
-    if class_names is None:
-        class_names = [labels_map.get(i, str(i)) for i in np.unique(y_true)]
-    else:
-        class_names = [labels_map.get(i, str(i)) for i in class_names]
-    metricas['class_names'] = class_names
-    
-    return metricas
-
-def mostrar_metricas_clasificacion(metricas, titulo="Métricas de Evaluación"):
-    """
-    Muestra las métricas de clasificación en Streamlit de forma organizada
-    """
-    st.write(f"### {titulo}")
-    
-    # Métricas generales en columnas
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Accuracy", f"{metricas['accuracy']:.3f}")
-    with col2:
-        st.metric("Precision (Macro)", f"{metricas['precision_macro']:.3f}")
-    with col3:
-        st.metric("Recall (Macro)", f"{metricas['recall_macro']:.3f}")
-    with col4:
-        st.metric("F1-Score (Macro)", f"{metricas['f1_macro']:.3f}")
-    
-    if metricas.get('roc_auc') is not None:
-        st.metric("ROC-AUC", f"{metricas['roc_auc']:.3f}")
-    
-    # Tabla detallada por clase
-    st.write("#### Métricas por clase")
-    
-    class_labels_global = st.session_state.get("clase_labels_global", {})
-    nombres_clase = [class_labels_global.get(c, str(c)) for c in metricas['class_names']]
-
-    tabla_metricas = pd.DataFrame({
-        'Clase': nombres_clase,
-        'Precision': metricas['precision_per_class'],
-        'Recall': metricas['recall_per_class'],
-        'F1-Score': metricas['f1_per_class'],
-        'Support': metricas.get('support_per_class', [np.nan]*len(nombres_clase))
-    })
-    # Formatear valores
-    for c in ['Precision','Recall','F1-Score']:
-        tabla_metricas[c] = tabla_metricas[c].apply(lambda x: float(x) if isinstance(x, (float, np.floating, int, np.integer)) else np.nan)
-    # Formato condicional pastel solo para las métricas, no para Support
-    def pastel_metric(val):
-        if pd.isnull(val) or val == 0:
-            return 'background-color: #ffffff; color: #111; font-weight: bold;'
-        if val >= 0.8:
-            color = '#81c784'  # verde pastel saturado
-        elif val >= 0.6:
-            color = '#fff176'  # amarillo pastel saturado
-        elif val > 0.0:
-            color = '#e57373'  # rojo pastel saturado
-        else:
-            color = '#ffffff'
-        return f'background-color: {color}; color: #111; font-weight: bold;'
-    styled = tabla_metricas.style.applymap(pastel_metric, subset=['Precision','Recall','F1-Score'])\
-        .format({'Precision': '{:.3f}', 'Recall': '{:.3f}', 'F1-Score': '{:.3f}', 'Support': '{:.0f}'})
-    st.dataframe(styled, use_container_width=True, hide_index=True)
-
-    # Glosario de colores para la tabla de métricas por clase
-    st.markdown("""
-<div style='margin: 0.5em 0 1em 0; font-size: 0.95em;'>
-<strong>Glosario de colores:</strong><br>
-<span style='background-color:#81c784; color:#111; padding:2px 8px; border-radius:4px;'>🟩 Verde</span> = valor alto (≥ 0.8, buen desempeño)<br>
-<span style='background-color:#fff176; color:#111; padding:2px 8px; border-radius:4px;'>🟨 Amarillo</span> = valor medio (≥ 0.6, aceptable)<br>
-<span style='background-color:#e57373; color:#111; padding:2px 8px; border-radius:4px;'>🟥 Rojo</span> = valor bajo (> 0.0, necesita mejora)<br>
-<span style='background-color:#fff; color:#111; padding:2px 8px; border-radius:4px;'>⬜ Blanco</span> = cero o nulo
-</div>
-""", unsafe_allow_html=True)
-
-    # Interpretaciones automáticas
-    with st.expander("💡 Interpretación de las métricas"):
-        st.markdown(f"""
-        **Accuracy ({metricas['accuracy']:.3f})**: Proporción de predicciones correctas del total.
-        {'✅ Excelente' if metricas['accuracy'] > 0.9 else '✅ Buena' if metricas['accuracy'] > 0.8 else '⚠️ Regular' if metricas['accuracy'] > 0.7 else '❌ Necesita mejora'}
-        
-        **Precision (Macro) ({metricas['precision_macro']:.3f})**: Promedio de precisión por clase. 
-        Indica qué tan exactas son las predicciones positivas.
-        {'✅ Excelente' if metricas['precision_macro'] > 0.9 else '✅ Buena' if metricas['precision_macro'] > 0.8 else '⚠️ Regular' if metricas['precision_macro'] > 0.7 else '❌ Necesita mejora'}
-        
-        **Recall (Macro) ({metricas['recall_macro']:.3f})**: Promedio de sensibilidad por clase.
-        Indica qué tan bien el modelo encuentra los casos positivos reales.
-        {'✅ Excelente' if metricas['recall_macro'] > 0.9 else '✅ Buena' if metricas['recall_macro'] > 0.8 else '⚠️ Regular' if metricas['recall_macro'] > 0.7 else '❌ Necesita mejora'}
-        
-        **F1-Score (Macro) ({metricas['f1_macro']:.3f})**: Media armónica entre precision y recall.
-        Balancea ambas métricas.
-        {'✅ Excelente' if metricas['f1_macro'] > 0.9 else '✅ Buena' if metricas['f1_macro'] > 0.8 else '⚠️ Regular' if metricas['f1_macro'] > 0.7 else '❌ Necesita mejora'}
-        """)
-
-def visualizar_matriz_confusion_mejorada(cm, class_names, titulo="Matriz de Confusión"):
-    """
-    Crea una visualización mejorada de la matriz de confusión
-    """
-    # Calcular porcentajes por fila, manejando filas vacías
-    row_sums = cm.sum(axis=1, keepdims=True)
-    # Evitar división por cero: si la suma es 0, dejar la fila en 0
-    row_sums[row_sums == 0] = 1
-    cm_percent = cm.astype('float') / row_sums * 100
-    # Opcional: redondear a 1 decimal para visualización
-    cm_percent = np.round(cm_percent, 1)
-    
-    # Crear figura con subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-    
-    # Matriz de confusión con valores absolutos
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax1,
-                xticklabels=class_names, yticklabels=class_names)
-    ax1.set_title('Matriz de Confusión (Valores Absolutos)')
-    ax1.set_xlabel('Predicción')
-    ax1.set_ylabel('Real')
-    
-    # Matriz de confusión con porcentajes
-    sns.heatmap(cm_percent, annot=True, fmt='.1f', cmap='Oranges', ax=ax2,
-                xticklabels=class_names, yticklabels=class_names)
-    ax2.set_title('Matriz de Confusión (Porcentajes)')
-    ax2.set_xlabel('Predicción')
-    ax2.set_ylabel('Real')
-    # Mostrar suma de cada fila (debería ser 100%)
-    percent_sums = cm_percent.sum(axis=1)
-    for i, total in enumerate(percent_sums):
-        ax2.text(len(class_names), i + 0.5, f"{total:.1f}", va='center', ha='left', color='black', fontsize=9, fontweight='bold')
-    ax2.set_xlim(-0.5, len(class_names) + 0.5)
-    # Etiqueta para la suma
-    ax2.set_xticks(list(ax2.get_xticks()) + [len(class_names)])
-    ax2.set_xticklabels(list(class_names) + ['Σ'], rotation=45 if len(class_names) > 3 else 0)
-    
-    plt.tight_layout()
-    st.pyplot(fig)
-    
-    # Interpretación automática
-    diagonal_sum = np.trace(cm)
-    total_sum = np.sum(cm)
-    accuracy = diagonal_sum / total_sum
-    
-    st.write("#### Interpretación de la matriz de confusión:")
-    st.write(f"- **Accuracy**: {accuracy:.3f} ({diagonal_sum}/{total_sum} predicciones correctas)")
-    
-    # Identificar clases con mayor confusión
-    cm_no_diag = cm.copy()
-    np.fill_diagonal(cm_no_diag, 0)
-    max_confusion = np.unravel_index(np.argmax(cm_no_diag), cm_no_diag.shape)
-    
-    if cm_no_diag[max_confusion] > 0:
-        st.write(f"- **Mayor confusión**: {class_names[max_confusion[0]]} confundida con {class_names[max_confusion[1]]} ({cm_no_diag[max_confusion]} casos)")
-
-def crear_curvas_roc_interactivas(y_true, y_prob, class_names):
-    """
-    Crea curvas ROC interactivas con Plotly
-    """
-    fig = go.Figure()
-    
-    if len(class_names) == 2:
-        # Clasificación binaria
-        fpr, tpr, _ = roc_curve(y_true, y_prob[:, 1])
-        roc_auc = auc(fpr, tpr)
-        
-        # Curva ROC
-        fig.add_trace(go.Scatter(
-            x=fpr, y=tpr,
-            mode='lines',
-            name=f'ROC (AUC = {roc_auc:.3f})',
-            line=dict(color='darkorange', width=3),
-            hovertemplate='FPR: %{x:.3f}<br>TPR: %{y:.3f}<extra></extra>'
-        ))
-        
-        # Línea diagonal
-        fig.add_trace(go.Scatter(
-            x=[0, 1], y=[0, 1],
-            mode='lines',
-            name='Clasificador aleatorio',
-            line=dict(color='navy', dash='dash', width=2),
-            hovertemplate='Línea de referencia<extra></extra>'
-        ))
-        
-    else:
-        # Clasificación multiclase
-        y_bin = label_binarize(y_true, classes=np.unique(y_true))
-        colors = px.colors.qualitative.Set1
-        
-        for i, class_name in enumerate(class_names):
-            fpr, tpr, _ = roc_curve(y_bin[:, i], y_prob[:, i])
-            roc_auc = auc(fpr, tpr)
-            fig.add_trace(go.Scatter(
-                x=fpr, y=tpr,
-                mode='lines',
-                name=f'{class_name} (AUC = {roc_auc:.3f})',
-                line=dict(color=colors[i % len(colors)], width=3),
-                hovertemplate=f'{class_name}<br>FPR: %{{x:.3f}}<br>TPR: %{{y:.3f}}<extra></extra>'
-            ))
-        
-        # Línea diagonal
-        fig.add_trace(go.Scatter(
-            x=[0, 1], y=[0, 1],
-            mode='lines',
-            name='Clasificador aleatorio',
-            line=dict(color='black', dash='dash', width=2),
-            hovertemplate='Línea de referencia<extra></extra>'
-        ))
-    
-    fig.update_layout(
-        title='Curvas ROC Interactivas',
-        xaxis_title='Tasa de Falsos Positivos (FPR)',
-        yaxis_title='Tasa de Verdaderos Positivos (TPR)',
-        width=800,
-        height=600,
-        hovermode='closest'
-    )
-    
-    return fig
-
-def calcular_metricas_regresion(y_true, y_pred, titulo="Métricas de Regresión"):
-    """
-    Calcula y muestra métricas para problemas de regresión
-    """
-    metricas = {}
-    metricas['mse'] = mean_squared_error(y_true, y_pred)
-    metricas['rmse'] = np.sqrt(metricas['mse'])
-    metricas['mae'] = mean_absolute_error(y_true, y_pred)
-    metricas['r2'] = r2_score(y_true, y_pred)
-    
-    # Mostrar métricas
-    st.write(f"### {titulo}")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("R² Score", f"{metricas['r2']:.3f}")
-    with col2:
-        st.metric("RMSE", f"{metricas['rmse']:.3f}")
-    with col3:
-        st.metric("MAE", f"{metricas['mae']:.3f}")
-    with col4:
-        st.metric("MSE", f"{metricas['mse']:.3f}")
-    
-    # Interpretaciones
-    with st.expander("💡 Interpretación de métricas de regresión"):
-        st.markdown(f"""
-        **R² Score ({metricas['r2']:.3f})**: Proporción de varianza explicada por el modelo.
-        - 1.0 = Perfecto ajuste
-        - 0.0 = Modelo no mejor que predecir la media
-        - <0.0 = Modelo peor que predecir la media
-        {'✅ Excelente' if metricas['r2'] > 0.9 else '✅ Bueno' if metricas['r2'] > 0.7 else '⚠️ Regular' if metricas['r2'] > 0.5 else '❌ Pobre'}
-        
-        **RMSE ({metricas['rmse']:.3f})**: Error cuadrático medio. Mismas unidades que la variable objetivo.
-        Penaliza más los errores grandes.
-        
-        **MAE ({metricas['mae']:.3f})**: Error absoluto medio. Mismas unidades que la variable objetivo.
-        Menos sensible a valores atípicos que RMSE.
-        
-        **MSE ({metricas['mse']:.3f})**: Error cuadrático medio. Unidades al cuadrado.
-        Base matemática para RMSE.
-        """)
-    
-    # Gráfico de valores reales vs predichos
-    fig_reg, ax_reg = plt.subplots(figsize=(8, 6))
-    ax_reg.scatter(y_true, y_pred, alpha=0.6)
-    ax_reg.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'r--', lw=2)
-    ax_reg.set_xlabel('Valores Reales')
-    ax_reg.set_ylabel('Valores Predichos')
-    ax_reg.set_title('Valores Reales vs Predichos')
-    ax_reg.grid(True, alpha=0.3)
-    
-    # Añadir línea de mejor ajuste
-    z = np.polyfit(y_true, y_pred, 1)
-    p = np.poly1d(z)
-    ax_reg.plot(y_true, p(y_true), "b--", alpha=0.8, linewidth=1, label=f'Ajuste lineal')
-    ax_reg.legend()
-    
-    st.pyplot(fig_reg)
-    
-    # Gráfico de residuos
-    residuos = y_true - y_pred
-    fig_res, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-    
-    # Residuos vs predichos
-    ax1.scatter(y_pred, residuos, alpha=0.6)
-    ax1.axhline(y=0, color='r', linestyle='--')
-    ax1.set_xlabel('Valores Predichos')
-    ax1.set_ylabel('Residuos')
-    ax1.set_title('Residuos vs Valores Predichos')
-    ax1.grid(True, alpha=0.3)
-    
-    # Histograma de residuos
-    ax2.hist(residuos, bins=20, alpha=0.7, edgecolor='black')
-    ax2.set_xlabel('Residuos')
-    ax2.set_ylabel('Frecuencia')
-    ax2.set_title('Distribución de Residuos')
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    st.pyplot(fig_res)
-    
-    return metricas
 
 
 # NUEVO: Título y selección de tipo de análisis (ahora incluye Bayes Ingenuo)
-st.title("Análisis Integrado: Discriminante (LDA/QDA), Bayes Ingenuo y PCA")
+st.title("Inferencia Estadística y Reconocimiento de Patrones")
+
 analisis = st.sidebar.selectbox(
     "Selecciona el tipo de análisis",
     ["Discriminante (LDA/QDA)", "Bayes Ingenuo", "Reducción de dimensiones (PCA)"]
@@ -383,22 +64,16 @@ archivos_csv = [f for f in os.listdir(carpeta_datos) if f.endswith('.csv')] if o
 opcion_archivo = st.selectbox("Seleccionar archivo CSV", archivos_csv)
 archivo_subido = st.file_uploader("O sube tu propio archivo CSV", type=["csv"])
 
-# Cargar el dataset
-df = None
-if archivo_subido is not None:
-    df = pd.read_csv(archivo_subido)
-    st.success("Archivo subido cargado correctamente.")
-elif opcion_archivo:
-    df = pd.read_csv(os.path.join(carpeta_datos, opcion_archivo))
-    st.success(f"Archivo '{opcion_archivo}' cargado correctamente.")
+# Cargar el dataset (modularizado)
+df, _msg_carga = cargar_dataset(archivo_subido, opcion_archivo, carpeta_datos)
+if _msg_carga:
+    st.success(_msg_carga)
 
 if df is not None:
 
     # Detectar columnas categóricas elegibles para target
     max_unique_target = 20
-    columnas = df.columns.tolist()
-    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
-    cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or pd.api.types.is_categorical_dtype(df[c]) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
+    num_cols, cat_cols = seleccionar_columnas(df, max_unique_target=max_unique_target)
     # Asignar nombres descriptivos a las clases antes de la vista previa
     if cat_cols:
         st.write("### Asignación de nombres descriptivos a las clases")
@@ -432,42 +107,7 @@ if df is not None:
     if analisis == "Bayes Ingenuo":
         st.header("Clasificación Bayes Ingenuo")
         with st.expander("¿Qué es Bayes Ingenuo? (Explicación teórica, práctica y predicción por clase)", expanded=True):
-            st.markdown(r'''
-**Bayes Ingenuo** es un algoritmo de clasificación supervisada basado en el Teorema de Bayes, con el supuesto de que las características son independientes entre sí dado la clase.
-
-**Teorema de Bayes:**
-$$
-P(C|X) = \frac{P(X|C) \cdot P(C)}{P(X)}
-$$
-
-- $P(C|X)$: Probabilidad de la clase $C$ dado los atributos $X$.
-- $P(X|C)$: Probabilidad de observar $X$ si la clase es $C$.
-- $P(C)$: Probabilidad previa de la clase $C$.
-- $P(X)$: Probabilidad de observar $X$.
-
-**Supuesto ingenuo:**
-$$
-P(X|C) = \prod_{i=1}^n P(x_i|C)
-$$
-Esto simplifica el cálculo, aunque en la práctica las variables pueden estar correlacionadas.
-
-**¿Cómo funciona?**
-1. Calcula la probabilidad previa de cada clase y la probabilidad condicional de cada atributo dado la clase.
-2. Para una nueva observación, multiplica las probabilidades y elige la clase con mayor probabilidad posterior.
-
-**Ventajas:**
-- Muy rápido y eficiente.
-- Funciona bien incluso con pocos datos.
-- Fácil de implementar.
-
-**Desventajas:**
-- El supuesto de independencia rara vez se cumple totalmente.
-- No modela relaciones entre variables.
-
-**Aplicaciones:**
-- Clasificación de correos (spam/no spam), análisis de sentimientos, diagnóstico médico, etc.
-
-''')
+            st.markdown(TEXTO_BAYES)
         # Selección de variables igual que en LDA/QDA
         max_unique_target = 20
         columnas = df.columns.tolist()
@@ -500,10 +140,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), use_container_width=True)
                 # Mostrar ejemplos de filas para cada valor de clase
                 st.write("#### Ejemplos para cada clase:")
-                for v in clase_unicos:
-                    nombre_clase = clase_labels_global[v]
-                    st.caption(f"Ejemplos para la clase '{nombre_clase}':")
-                    st.dataframe(df[df[target_col] == v].head(3), use_container_width=True)
+                from preprocesamiento import mostrar_ejemplos_por_clase
+                mostrar_ejemplos_por_clase(df, target_col, clase_labels_global, st, n=3)
                 
                 st.caption("""
                 **¿Por qué es importante?**
@@ -529,26 +167,26 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             if feature_cols and target_col:
                 X = df[feature_cols]
                 y = df[target_col]
+                # Manejo de nulos
                 if X.isnull().values.any():
                     st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
-                    X = X.fillna(X.mean())
+                    X = manejar_nulos(X, metodo='media')
                 # Preprocesamiento PCA si corresponde
+                scaler = None
+                pca = None
                 if usar_pca:
-                    scaler = StandardScaler()
-                    X_scaled = scaler.fit_transform(X)
-                    pca_full = PCA(n_components=min(X.shape[0], X.shape[1]))
-                    pca_full.fit(X_scaled)
-                    var_acum = np.cumsum(pca_full.explained_variance_ratio_)
-                    n_comp = np.argmax(var_acum >= varianza_pca/100) + 1
-                    pca = PCA(n_components=n_comp)
-                    X_pca = pca.fit_transform(X_scaled)
-                    X_model = X_pca
+                    X_scaled, scaler = escalar_datos(X)
+                    # Calcular número de componentes para alcanzar la varianza requerida
+                    _, _pca_auto, _var_exp_auto, n_comp = aplicar_pca(X_scaled, varianza_min=varianza_pca/100)
+                    # Reentrenar PCA limitado a n_comp
+                    from sklearn.decomposition import PCA as _PCA
+                    pca = _PCA(n_components=n_comp)
+                    X_model = pca.fit_transform(X_scaled)
                     st.success(f"PCA aplicado: {n_comp} componentes principales conservan al menos {varianza_pca}% de la varianza.")
                 else:
                     X_model = X
-                from sklearn.naive_bayes import GaussianNB
-                model = GaussianNB()
-                model.fit(X_model, y)
+                # Entrenar Bayes ingenuo
+                model = entrenar_bayes(X_model, y)
                 with st.expander("2️⃣ Predicción interactiva y probabilidades por clase", expanded=True):
                     st.write("### Ingresa una observación para predecir la clase")
                     st.info("""
@@ -583,7 +221,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                             st.caption(f"mín: {minv:.2f}\nmedia: {meanv:.2f}\nmáx: {maxv:.2f}")
                     nueva_obs = [nueva_obs]
                     # Si se usó PCA, transformar la observación
-                    if usar_pca:
+                    if usar_pca and scaler is not None and pca is not None:
                         nueva_obs_scaled = scaler.transform(nueva_obs)
                         nueva_obs_pca = pca.transform(nueva_obs_scaled)
                         obs_model = nueva_obs_pca
@@ -665,17 +303,11 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     - Incluye métricas globales y por clase, matriz de confusión y reportes detallados.
                     - Útil para comparar con otros modelos y detectar posibles problemas.
                     """)
-                    y_pred = model.predict(X_model)
-                    y_prob = None
-                    try:
-                        if hasattr(model, 'predict_proba'):
-                            y_prob = model.predict_proba(X_model)
-                    except:
-                        y_prob = None
+                    y_pred, y_prob = predecir(model, X_model)
                     class_labels_global = st.session_state.get("clase_labels_global", {})
                     class_names = [class_labels_global.get(c, str(c)) for c in model.classes_]
-                    metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
-                    mostrar_metricas_clasificacion(metricas, "Métricas de Bayes Ingenuo")
+                    metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names, st=st)
+                    mostrar_metricas_clasificacion(metricas, st, "Métricas de Bayes Ingenuo")
                     with st.expander("Ver matriz de confusión", expanded=True):
                         st.write("### 🎯 Matriz de Confusión Detallada")
                         st.caption("""
@@ -687,11 +319,11 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         - Los valores fuera de la diagonal son errores de clasificación.
                         - Permite identificar patrones de confusión entre clases.
                         """)
-                        visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names)
+                        visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names, st)
                     if y_prob is not None and len(class_names) > 1:
                         with st.expander("Ver curvas ROC", expanded=True):
                             st.write("### Curvas ROC (si hay probabilidades disponibles)")
-                            fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names)
+                            fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names, go, px)
                             st.plotly_chart(fig_roc, use_container_width=True)
                     with st.expander("📋 Reporte de Clasificación Completo", expanded=True):
                         st.caption("""
@@ -754,41 +386,14 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                         - Si una clase tiene pocas muestras o bajo score, puede ser más difícil de predecir.
                         - Útil para identificar clases desbalanceadas o problemáticas.
                         """)
-                        fig_class, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-                        x = np.arange(len(class_names))
-                        width = 0.25
-                        ax1.bar(x - width, metricas['precision_per_class'], width, label='Precision', alpha=0.8)
-                        ax1.bar(x, metricas['recall_per_class'], width, label='Recall', alpha=0.8)
-                        ax1.bar(x + width, metricas['f1_per_class'], width, label='F1-Score', alpha=0.8)
-                        ax1.set_xlabel('Clases')
-                        ax1.set_ylabel('Score')
-                        ax1.set_title('Métricas por Clase')
-                        ax1.set_xticks(x)
-                        ax1.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
-                        ax1.legend()
-                        ax1.grid(True, alpha=0.3)
-                        class_counts = pd.Series(y).value_counts().sort_index()
-                        ax2.bar(range(len(class_counts)), class_counts.values, alpha=0.7, color='skyblue')
-                        ax2.set_xlabel('Clases')
-                        ax2.set_ylabel('Número de muestras')
-                        ax2.set_title('Distribución de clases en el dataset')
-                        ax2.set_xticks(range(len(class_names)))
-                        ax2.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
-                        ax2.grid(True, alpha=0.3)
-                        for i, v in enumerate(class_counts.values):
-                            ax2.text(i, v, str(v), ha='center', va='bottom', fontsize=9)
-                        plt.tight_layout()
+                        fig_class = plot_metricas_por_clase(metricas, class_names, y)
                         st.pyplot(fig_class)
                         st.info("Puedes comparar el rendimiento de Bayes Ingenuo con LDA/QDA seleccionando el mismo dataset en las otras vistas.")
     # ================= FIN VISTA BAYES INGENUO =================
     elif analisis == "Discriminante (LDA/QDA)":
         st.header("Clasificación Discriminante (LDA/QDA)")
         with st.expander("¿Qué es LDA y QDA? (Explicación teórica)"):
-            st.markdown("""
-            **LDA (Análisis Discriminante Lineal)** y **QDA (Análisis Discriminante Cuadrático)** son algoritmos de clasificación supervisada que buscan separar clases en función de sus características.
-            - **LDA** asume que todas las clases tienen igual matriz de covarianza y genera fronteras lineales.
-            - **QDA** permite que cada clase tenga su propia matriz de covarianza y genera fronteras cuadráticas.
-            """)
+            st.markdown(TEXTO_LDA_QDA)
         # Filtrar columnas válidas para target
         max_unique_target = 20
         columnas = df.columns.tolist()
@@ -813,6 +418,11 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 [c for c in num_cols if c != target_col],
                 default=[c for c in num_cols if c != target_col]
             )
+            # Mostrar ejemplos de filas por clase (modularizado)
+            st.write("#### Ejemplos para cada clase:")
+            from preprocesamiento import mostrar_ejemplos_por_clase
+            clase_labels_global = st.session_state.get("clase_labels_global", {})
+            mostrar_ejemplos_por_clase(df, target_col, clase_labels_global, st, n=3)
             # Opción de preprocesamiento PCA
             usar_pca = st.checkbox("Aplicar reducción de dimensiones (PCA) como preprocesamiento", value=False, key="usar_pca_ldaqda")
             if usar_pca and feature_cols:
@@ -821,29 +431,27 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             if feature_cols and target_col:
                 X = df[feature_cols]
                 y = df[target_col]
+                # Manejo de nulos
                 if X.isnull().values.any():
                     st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
-                    X = X.fillna(X.mean())
+                    X = manejar_nulos(X, metodo='media')
                 # Preprocesamiento PCA si corresponde
+                scaler = None
+                pca = None
                 if usar_pca:
-                    scaler = StandardScaler()
-                    X_scaled = scaler.fit_transform(X)
-                    pca_full = PCA(n_components=min(X.shape[0], X.shape[1]))
-                    pca_full.fit(X_scaled)
-                    var_acum = np.cumsum(pca_full.explained_variance_ratio_)
-                    n_comp = np.argmax(var_acum >= varianza_pca/100) + 1
-                    pca = PCA(n_components=n_comp)
-                    X_pca = pca.fit_transform(X_scaled)
-                    X_model = X_pca
+                    X_scaled, scaler = escalar_datos(X)
+                    _, _pca_auto, _var_exp_auto, n_comp = aplicar_pca(X_scaled, varianza_min=varianza_pca/100)
+                    from sklearn.decomposition import PCA as _PCA
+                    pca = _PCA(n_components=n_comp)
+                    X_model = pca.fit_transform(X_scaled)
                     st.success(f"PCA aplicado: {n_comp} componentes principales conservan al menos {varianza_pca}% de la varianza.")
                 else:
                     X_model = X
                 algoritmo = st.selectbox("Selecciona el algoritmo", ["LDA", "QDA"])
                 if algoritmo == "LDA":
-                    model = LinearDiscriminantAnalysis(store_covariance=True)
+                    model = entrenar_lda(X_model, y, store_covariance=True)
                 elif algoritmo == "QDA":
-                    model = QuadraticDiscriminantAnalysis(store_covariance=True)
-                model.fit(X_model, y)
+                    model = entrenar_qda(X_model, y, store_covariance=True)
                 # Mostrar matriz de covarianza estimada por el modelo (solo LDA/QDA)
                 if algoritmo in ["LDA", "QDA"]:
                     st.write(f"### Matriz de covarianza estimada por el modelo ({algoritmo})")
@@ -911,13 +519,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                     obs_model = nueva_obs_pca
                 else:
                     obs_model = nueva_obs
-                prediccion = model.predict(obs_model)
-                probas = None
-                if hasattr(model, 'predict_proba'):
-                    try:
-                        probas = model.predict_proba(obs_model)[0]
-                    except Exception:
-                        probas = None
+                prediccion, probas_all = predecir(model, obs_model)
+                probas = probas_all[0] if probas_all is not None else None
                 if st.button("Predecir clase"):
                     st.caption("""
                     **¿Qué significa esto?**
@@ -984,33 +587,15 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 """)
                 
                 # Predicciones
-                y_pred = model.predict(X_model)
-                
-                # Obtener probabilidades si es posible
-                y_prob = None
-                try:
-                    if hasattr(model, 'predict_proba'):
-                        y_prob = model.predict_proba(X_model)
-                    elif hasattr(model, 'decision_function'):
-                        # Para modelos como SVM que usan decision_function
-                        decision_scores = model.decision_function(X_model)
-                        if decision_scores.ndim == 1:
-                            # Clasificación binaria
-                            y_prob = np.column_stack([1-decision_scores, decision_scores])
-                        else:
-                            # Clasificación multiclase - convertir a probabilidades aproximadas
-                            from scipy.special import softmax
-                            y_prob = softmax(decision_scores, axis=1)
-                except:
-                    y_prob = None
+                y_pred, y_prob = predecir(model, X_model)
                 
                 # Calcular todas las métricas
                 class_labels_global = st.session_state.get("clase_labels_global", {})
                 class_names = [class_labels_global.get(c, str(c)) for c in model.classes_]
-                metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names)
+                metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names, st=st)
                 
                 # Mostrar métricas principales
-                mostrar_metricas_clasificacion(metricas, f"Métricas de {algoritmo}")
+                mostrar_metricas_clasificacion(metricas, st, f"Métricas de {algoritmo}")
                 
                 # Validación cruzada
                 st.write("### 🔄 Validación Cruzada")
@@ -1073,13 +658,13 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 - Los valores fuera de la diagonal son errores de clasificación.
                 - Permite identificar patrones de confusión entre clases.
                 """)
-                visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names)
+                visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names, st)
                 
                 # Curvas ROC (si hay probabilidades disponibles)
                 # Visualización de curvas ROC con Plotly (interactivo)
                 if y_prob is not None and len(class_names) > 1:
                     st.write("### 📈 Curvas ROC Interactivas")
-                    fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names)
+                    fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names, go, px)
                     st.plotly_chart(fig_roc, use_container_width=True)
                     # Interpretación del AUC
                     if metricas.get('roc_auc'):
@@ -1144,40 +729,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 - Si una clase tiene pocas muestras o bajo score, puede ser más difícil de predecir.
                 - Útil para identificar clases desbalanceadas o problemáticas.
                 """)
-                fig_class, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-                
-                # Gráfico de barras de métricas por clase
-                x = np.arange(len(class_names))
-                width = 0.25
-                
-                ax1.bar(x - width, metricas['precision_per_class'], width, label='Precision', alpha=0.8)
-                ax1.bar(x, metricas['recall_per_class'], width, label='Recall', alpha=0.8)
-                ax1.bar(x + width, metricas['f1_per_class'], width, label='F1-Score', alpha=0.8)
-                
-                ax1.set_xlabel('Clases')
-                ax1.set_ylabel('Score')
-                ax1.set_title('Métricas por Clase')
-                ax1.set_xticks(x)
-                ax1.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
-                ax1.legend()
-                ax1.grid(True, alpha=0.3)
-                
-                # Gráfico de soporte (cantidad de muestras por clase)
-                class_counts = pd.Series(y).value_counts().sort_index()
-                ax2.bar(range(len(class_counts)), class_counts.values, alpha=0.7, color='skyblue')
-                ax2.set_xlabel('Clases')
-                ax2.set_ylabel('Número de muestras')
-                ax2.set_title('Distribución de clases en el dataset')
-                ax2.set_xticks(range(len(class_names)))
-                ax2.set_xticklabels(class_names, rotation=45 if len(class_names) > 3 else 0)
-                ax2.grid(True, alpha=0.3)
-                
-                # Agregar valores en las barras
-                for i, v in enumerate(class_counts.values):
-                    ax2.text(i, v + max(class_counts.values) * 0.01, str(v), 
-                            ha='center', va='bottom')
-                
-                plt.tight_layout()
+                fig_class = plot_metricas_por_clase(metricas, class_names, y)
                 st.pyplot(fig_class)
                 
                 # ======== COMPARACIÓN DE MODELOS ========
@@ -1215,7 +767,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                                     pass
                                 
                                 # Calcular métricas
-                                metricas_comp = calcular_metricas_clasificacion(y, y_pred_comp, y_prob_comp, class_names)
+                                metricas_comp = calcular_metricas_clasificacion(y, y_pred_comp, y_prob_comp, class_names, st=st)
                                 
                                 # Validación cruzada si es posible
                                 cv_accuracy = None
@@ -1466,30 +1018,7 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
         # Aquí solo se marca la rama para mostrar la sección correspondiente.
         st.header("Reducción de dimensiones: PCA")
         with st.expander("¿Qué es PCA? (Explicación visual y sencilla)"):
-            st.markdown("""
-            **PCA (Análisis de Componentes Principales)** es una técnica que transforma tus variables originales en nuevas variables llamadas *componentes principales*.
-            
-            - Cada componente principal es una combinación de las variables originales.
-            - El **primer componente principal (PC1)** es la dirección donde los datos varían más.
-            - El **segundo componente principal (PC2)** es la siguiente dirección de máxima variabilidad, perpendicular a la primera.
-            - Así sucesivamente para los demás componentes.
-            
-            **¿Para qué sirve?**
-            - Para reducir la cantidad de variables y simplificar el análisis.
-            - Para visualizar datos multidimensionales en 2D o 3D.
-            - Para eliminar redundancia si algunas variables están correlacionadas.
-            
-            **Ejemplo visual:**
-            Si tienes datos de vinos con 10 características, PCA puede crear 2 componentes principales que expliquen el 80% de la variabilidad. Así puedes graficar y analizar los vinos en solo 2 dimensiones, sin perder casi nada de información.
-            
-            **¿En qué se basa?**
-            - PCA calcula la matriz de covarianza de los datos y encuentra las direcciones (componentes) donde los datos varían más.
-            - Cada componente tiene un porcentaje de varianza explicada: indica cuánta información conserva ese componente.
-            
-            **Interpretación de los porcentajes:**
-            - Si el primer componente explica el 60% y el segundo el 20%, juntos explican el 80% de la variabilidad de los datos.
-            - Puedes decidir cuántos componentes usar según la varianza acumulada.
-            """)
+            st.markdown(TEXTO_PCA)
         num_cols_pca = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
         class_col_pca = st.selectbox("Columna de clase (opcional, para colorear)", ["(Ninguna)"] + [c for c in df.columns if df[c].nunique() <= 20 and c != "(Ninguna)"])
         feature_cols_pca = st.multiselect("Selecciona las columnas numéricas para PCA:", [c for c in num_cols_pca if c != class_col_pca], default=[c for c in num_cols_pca if c != class_col_pca])
@@ -1499,28 +1028,29 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             X_pca = df[feature_cols_pca]
             if X_pca.isnull().values.any():
                 st.warning("Se encontraron valores faltantes en las columnas seleccionadas para PCA. Imputando con la media de cada columna...")
-                X_pca = X_pca.fillna(X_pca.mean())
-            X_pca_scaled = StandardScaler().fit_transform(X_pca)
+                X_pca = manejar_nulos(X_pca, metodo='media')
+            X_pca_scaled, scaler_pca = escalar_datos(X_pca)
             n_samples, n_features = X_pca_scaled.shape
             max_components = min(n_samples, n_features)
-            # Calcula el número de componentes necesarios para alcanzar el porcentaje deseado
-            pca_full = PCA(n_components=max_components)
-            pca_full.fit(X_pca_scaled)
-            var_exp_full = pca_full.explained_variance_ratio_
-            var_acum_full = np.cumsum(var_exp_full)
-            n_comp_auto = np.argmax(var_acum_full >= varianza_deseada/100) + 1
+            # Usar aplicar_pca para sugerir n_comp_auto y obtener proyección completa
+            X_proj_auto, pca_auto, var_exp_full, n_comp_auto = aplicar_pca(X_pca_scaled, varianza_min=varianza_deseada/100)
             st.write(f"Se requieren **{n_comp_auto}** componentes principales para alcanzar al menos {varianza_deseada}% de varianza acumulada.")
             n_comp = st.slider("Cantidad de componentes principales", min_value=2, max_value=max_components, value=n_comp_auto)
             if max_components < n_comp:
                 st.error(f"No se puede aplicar PCA con {n_comp} componentes. El dataset tiene solo {n_samples} muestra(s) y {n_features} característica(s). El número de componentes debe ser menor o igual a {max_components}.")
             else:
-                pca = PCA(n_components=n_comp)
+                from sklearn.decomposition import PCA as _PCA
+                pca = _PCA(n_components=n_comp)
                 X_proj = pca.fit_transform(X_pca_scaled)
                 var_exp = pca.explained_variance_ratio_
                 st.write("#### Porcentaje de varianza explicada por cada componente principal:")
                 var_exp_pct = [f"PC{i+1}: {v*100:.2f}%" for i, v in enumerate(var_exp)]
                 st.write(", ".join(var_exp_pct))
                 st.write(f"**Varianza acumulada:** {np.sum(var_exp)*100:.2f}%")
+                # Gráfico modularizado
+                from visualizaciones import plot_varianza_explicada_pca
+                fig_bar = plot_varianza_explicada_pca(var_exp, n_comp)
+                st.pyplot(fig_bar)
                 # Ejemplo de PCA sin escalado y comparación visual
                 with st.expander("Comparación: PCA con y sin escalado de variables"):
                     st.markdown("""
@@ -1556,13 +1086,10 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             # Mostrar composición de cada componente principal
             st.write("### Composición de cada componente principal")
             comp_matrix = pca.components_
-            for i, row in enumerate(comp_matrix):
-                ecuacion = f"PC{i+1} = "
-                partes = []
-                for peso, var in zip(row, feature_cols_pca):
-                    partes.append(f"{peso:+.2f} × {var}")
-                ecuacion += " "+" ".join(partes)
-                st.markdown(f"- {ecuacion}")
+            from visualizaciones import ecuacion_componente_principal
+            ecuaciones = ecuacion_componente_principal(comp_matrix, feature_cols_pca)
+            for eq in ecuaciones:
+                st.markdown(f"- {eq}")
             # Matriz de componentes principales
             st.write("### Matriz de componentes principales (PCA)")
             st.write(pd.DataFrame(pca.components_, columns=feature_cols_pca, index=[f"PC{i+1}" for i in range(n_comp)]))
@@ -1570,16 +1097,10 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             st.info("La matriz de componentes principales te muestra cómo se construyen los nuevos ejes (componentes) a partir de tus variables originales. Los valores indican la importancia de cada variable en cada componente.")
             # Interpretación automática de cada componente principal
             st.write("### Interpretación automática de los componentes principales")
-            for i, row in enumerate(pca.components_):
-                pesos = np.abs(row)
-                top_idx = np.argsort(pesos)[::-1][:3]  # top 3 variables
-                top_vars = [(feature_cols_pca[j], row[j]) for j in top_idx]
-                partes = []
-                for var, peso in top_vars:
-                    sentido = "+" if peso > 0 else "-"
-                    partes.append(f"{var} ({sentido})")
-                explicacion = f"PC{i+1} está principalmente influenciado por: " + ", ".join(partes)
-                st.markdown(f"- {explicacion}")
+            from visualizaciones import interpretar_componentes_principales
+            interpretaciones = interpretar_componentes_principales(pca.components_, feature_cols_pca, top_n=3)
+            for interp in interpretaciones:
+                st.markdown(f"- {interp}")
 
             # Visualización de flechas de componentes principales sobre los datos originales
             with st.expander("Visualización: Flechas de componentes principales sobre los datos originales"):
@@ -1590,24 +1111,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
                 if len(feature_cols_pca) >= 2:
                     var_x = st.selectbox("Variable para eje X", feature_cols_pca, index=0)
                     var_y = st.selectbox("Variable para eje Y", [v for v in feature_cols_pca if v != var_x], index=0)
-                    fig_arrow, ax_arrow = plt.subplots(figsize=(7, 6))
-                    # Graficar puntos
-                    ax_arrow.scatter(X_pca[var_x], X_pca[var_y], alpha=0.6, color='gray', label='Datos')
-                    # Calcular centro
-                    x_mean = X_pca[var_x].mean()
-                    y_mean = X_pca[var_y].mean()
-                    # Flechas de PC1 y PC2
-                    idx_x = feature_cols_pca.index(var_x)
-                    idx_y = feature_cols_pca.index(var_y)
-                    # PC1
-                    ax_arrow.arrow(x_mean, y_mean, pca.components_[0, idx_x]*5, pca.components_[0, idx_y]*5, width=0.05, color="purple", label="PC1")
-                    # PC2
-                    ax_arrow.arrow(x_mean, y_mean, pca.components_[1, idx_x]*5, pca.components_[1, idx_y]*5, width=0.05, color="black", label="PC2")
-                    ax_arrow.set_xlabel(var_x)
-                    ax_arrow.set_ylabel(var_y)
-                    ax_arrow.set_title(f"Flechas de PC1 y PC2 sobre {var_x} vs {var_y}")
-                    ax_arrow.legend(["Datos", "PC1", "PC2"])
-                    fig_arrow.tight_layout()
+                    from visualizaciones import plot_flechas_componentes_principales
+                    fig_arrow = plot_flechas_componentes_principales(X_pca, pca, var_x, var_y, feature_cols_pca, scale=5)
                     st.pyplot(fig_arrow)
                     st.caption("Las flechas muestran la dirección y sentido de los dos primeros componentes principales en el plano de las variables seleccionadas.")
             # Matriz de covarianza de los datos originales
@@ -1618,12 +1123,8 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             st.caption("La matriz de covarianza muestra cómo varían conjuntamente las variables originales. Valores altos indican que dos variables tienden a aumentar o disminuir juntas.")
             st.info("¿Para qué sirve? Permite identificar relaciones y dependencias entre variables. Es la base matemática de PCA y ayuda a detectar variables redundantes o muy correlacionadas.")
             import seaborn as sns
-            fig_cov, ax_cov = plt.subplots(figsize=(8, 6))
-            sns.heatmap(df_cov, annot=True, fmt='.2f', cmap='YlGnBu', ax=ax_cov, annot_kws={"size":8})
-            ax_cov.set_title('Heatmap matriz de covarianza (PCA)', fontsize=14)
-            ax_cov.set_xticklabels(ax_cov.get_xticklabels(), rotation=45, ha='right', fontsize=9)
-            ax_cov.set_yticklabels(ax_cov.get_yticklabels(), rotation=0, fontsize=9)
-            fig_cov.tight_layout()
+            from visualizaciones import plot_heatmap_covarianza
+            fig_cov = plot_heatmap_covarianza(df_cov)
             st.pyplot(fig_cov)
             # Matriz de correlación de los datos originales
             st.write("### Matriz de correlación de los datos originales")
@@ -1633,36 +1134,25 @@ Esto simplifica el cálculo, aunque en la práctica las variables pueden estar c
             st.caption("La matriz de correlación muestra la relación lineal entre variables, normalizada entre -1 y 1. Valores cercanos a +1 o -1 indican fuerte relación positiva o negativa.")
             st.info("¿Para qué sirve? Permite identificar variables que están muy relacionadas (redundantes) y ayuda a decidir qué variables pueden ser eliminadas o combinadas.")
             # Recomendación automática de variables redundantes
-            threshold = 0.85
-            redundantes = []
-            for i in range(len(feature_cols_pca)):
-                for j in range(i+1, len(feature_cols_pca)):
-                    corr = df_corr.iloc[i, j]
-                    if abs(corr) > threshold:
-                        redundantes.append((feature_cols_pca[i], feature_cols_pca[j], corr))
+            from preprocesamiento import detectar_variables_redundantes
+            redundantes = detectar_variables_redundantes(df_corr, feature_cols_pca, threshold=0.85)
             if redundantes:
                 st.warning("Variables potencialmente redundantes detectadas (correlación > 0.85 o < -0.85):")
                 for var1, var2, corr in redundantes:
                     st.write(f"- **{var1}** y **{var2}** (correlación: {corr:.2f})")
                 st.caption("Puedes considerar eliminar o combinar estas variables para simplificar el análisis, ya que aportan información muy similar.")
-            fig_corr, ax_corr = plt.subplots(figsize=(8, 6))
-            sns.heatmap(df_corr, annot=True, fmt='.2f', cmap='coolwarm', ax=ax_corr, center=0, annot_kws={"size":8})
-            ax_corr.set_title('Heatmap matriz de correlación (PCA)', fontsize=14)
-            ax_corr.set_xticklabels(ax_corr.get_xticklabels(), rotation=45, ha='right', fontsize=9)
-            ax_corr.set_yticklabels(ax_corr.get_yticklabels(), rotation=0, fontsize=9)
-            fig_corr.tight_layout()
+            from visualizaciones import plot_heatmap_correlacion
+            fig_corr = plot_heatmap_correlacion(df_corr)
             st.pyplot(fig_corr)
             # Gráfico de barras de varianza explicada
             st.write("### Varianza explicada por cada componente")
             st.caption("La varianza explicada indica cuánta información conserva cada componente principal. Componentes con mayor varianza explicada son más importantes para representar los datos.")
-            fig_bar, ax_bar = plt.subplots()
-            ax_bar.bar(range(1, n_comp+1), [v*100 for v in var_exp], color='dodgerblue')
-            ax_bar.set_xlabel('Componente principal')
-            ax_bar.set_ylabel('Varianza explicada (%)')
-            ax_bar.set_title('Porcentaje de varianza explicada por componente')
-            for i, v in enumerate(var_exp):
-                ax_bar.text(i+1, v*100, f"{v*100:.1f}%", ha='center', va='bottom', fontsize=9)
-            st.pyplot(fig_bar)
+            # Ya se usa plot_varianza_explicada_pca arriba, así que solo modularizamos la varianza acumulada:
+            from visualizaciones import plot_varianza_acumulada_pca
+            st.write("### Varianza acumulada por componente")
+            fig_line, codo_idx = plot_varianza_acumulada_pca(var_exp, n_comp)
+            st.info(f"Recomendación automática: El método del codo sugiere usar **{codo_idx}** componentes principales. A partir de aquí, el incremento de varianza explicada es menor a 2%. Puedes ajustar según tu objetivo.")
+            st.pyplot(fig_line)
 
             st.write("### Varianza acumulada por componente")
             var_acum = np.cumsum(var_exp)
@@ -2257,123 +1747,20 @@ st.sidebar.markdown("---")
 st.sidebar.write("## 📚 Ayuda y Documentación")
 
 with st.sidebar.expander("📖 Guía de uso"):
-    st.markdown("""
-    ### 🚀 Cómo usar esta aplicación
-    
-    **1. Selecciona el tipo de análisis:**
-    - **Discriminante (LDA/QDA)**: Para clasificación supervisada lineal o cuadrática
-    - **Bayes Ingenuo**: Para clasificación supervisada basada en el teorema de Bayes
-    - **PCA**: Para reducción de dimensiones
-    
-    **2. Carga tus datos:**
-    - Selecciona un archivo CSV de la carpeta de datos
-    - O sube tu propio archivo CSV
-    
-    **3. Configura el análisis:**
-    - Selecciona las variables target y features
-    - Ajusta los parámetros según tus necesidades
-    
-    **4. Interpreta los resultados:**
-    - Revisa las métricas y visualizaciones
-    - Usa las interpretaciones automáticas
-    - Explora las secciones expandibles para más detalles
-    """)
+    st.markdown(GUIA_USO)
 
 with st.sidebar.expander("🎯 Métricas explicadas"):
-    st.markdown("""
-    ### 📊 Métricas de Clasificación
-    
-    **Accuracy**: Proporción de predicciones correctas
-    - > 0.9: Excelente
-    - 0.8-0.9: Buena
-    - 0.7-0.8: Regular
-    - < 0.7: Necesita mejora
-    
-    **Precision**: Exactitud de predicciones positivas
-    - Pregunta: "De los que predije positivos, ¿cuántos son realmente positivos?"
-    
-    **Recall (Sensibilidad)**: Capacidad de encontrar casos positivos
-    - Pregunta: "De todos los casos positivos reales, ¿cuántos encontré?"
-    
-    **F1-Score**: Media armónica entre precision y recall
-    - Balancea ambas métricas
-    
-    **ROC-AUC**: Área bajo la curva ROC
-    - Mide capacidad discriminativa del modelo
-    - > 0.9: Excelente
-    - 0.8-0.9: Buena
-    - 0.7-0.8: Aceptable
-    - < 0.7: Pobre
-    """)
+    st.markdown(METRICAS_EXPLICADAS)
 
 
 with st.sidebar.expander("🧮 Bayes Ingenuo explicado"):
-    st.markdown("""
-    ### 🤖 Bayes Ingenuo
-    
-    - Algoritmo de clasificación supervisada basado en el Teorema de Bayes.
-    - Supone independencia entre las variables dado la clase.
-    - Muy eficiente y fácil de implementar.
-    - Útil para clasificación de texto, spam, análisis de sentimientos, etc.
-    
-    **¿Cómo funciona?**
-    - Calcula la probabilidad de cada clase dado los atributos.
-    - Asigna la clase con mayor probabilidad posterior.
-    
-    **Ventajas:**
-    - Rápido, robusto y funciona bien con pocos datos.
-    
-    **Desventajas:**
-    - El supuesto de independencia rara vez se cumple totalmente.
-    """)
+    st.markdown(BAYES_EXPLICADO)
 
 with st.sidebar.expander("🔍 Interpretación de PCA"):
-    st.markdown("""
-    ### 📈 Componentes Principales
-    
-    **PC1, PC2, PC3...**: Nuevas variables creadas
-    - PC1 explica la mayor varianza
-    - PC2 explica la segunda mayor varianza
-    - Son perpendiculares entre sí
-    
-    **Varianza explicada**: Información conservada
-    - 80%+ acumulada es generalmente buena
-    - Ayuda a decidir cuántos componentes usar
-    
-    **Matriz de componentes**: Cómo se construyen
-    - Cada fila = un componente
-    - Cada columna = una variable original
-    - Valores = importancia de cada variable
-    
-    **Escalado**: Siempre recomendado
-    - Evita que variables de mayor rango dominen
-    - Permite comparación justa entre variables
-    """)
+    st.markdown(PCA_SIDEBAR)
 
 with st.sidebar.expander("⚙️ Configuración avanzada"):
-    st.markdown("""
-    ### 🛠️ Opciones Avanzadas
-    
-    **Validación Cruzada**:
-    - Evalúa el modelo en diferentes subconjuntos
-    - Proporciona estimación más robusta
-    - K-fold típicamente entre 3-10
-    
-    **Comparación de Modelos**:
-    - Evalúa los algoritmos estudiados (LDA, QDA, Bayes Ingenuo)
-    - Compara métricas lado a lado
-    - Proporciona recomendaciones
-    
-    **Visualizaciones Interactivas**:
-    - Gráficos 3D con Plotly
-    - Hover para detalles
-    - Zoom y rotación disponibles
-    
-    **Interpretaciones Automáticas**:
-    - Análisis de resultados
-    - Recomendaciones basadas en métricas
-    - Identificación de problemas comunes
-    """)
+    st.markdown(CONFIG_AVANZADA)
 
 # Información sobre los datos de ejemplo si existen
 if os.path.exists(carpeta_datos) and archivos_csv:
