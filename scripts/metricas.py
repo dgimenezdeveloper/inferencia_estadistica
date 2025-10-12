@@ -89,9 +89,9 @@ def mostrar_metricas_clasificacion(metricas, st, titulo="Métricas de Evaluació
         else:
             color = '#ffffff'
         return f'background-color: {color}; color: #111; font-weight: bold;'
-    styled = tabla_metricas.style.applymap(pastel_metric, subset=['Precision','Recall','F1-Score'])\
+    styled = tabla_metricas.style.map(pastel_metric, subset=['Precision','Recall','F1-Score'])\
         .format({'Precision': '{:.3f}', 'Recall': '{:.3f}', 'F1-Score': '{:.3f}', 'Support': '{:.0f}'})
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(styled, width='stretch', hide_index=True)
     st.markdown("""
 <div style='margin: 0.5em 0 1em 0; font-size: 0.95em;'>
 <strong>Glosario de colores:</strong><br>

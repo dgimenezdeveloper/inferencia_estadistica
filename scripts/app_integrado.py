@@ -2,7 +2,27 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import warnings
 import matplotlib.pyplot as plt
+
+# Función helper para suprimir warnings de Plotly en Streamlit
+def safe_plotly_chart(fig, **kwargs):
+    """Wrapper para st.plotly_chart que suprime warnings de deprecación y agrupa opciones en 'config'"""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="The keyword arguments have been deprecated")
+        # Extraer argumentos de configuración conocidos
+        config_keys = [
+            'displayModeBar', 'displaylogo', 'modeBarButtonsToRemove', 'toImageButtonOptions',
+            'scrollZoom', 'responsive', 'staticPlot', 'editable', 'edits', 'autosizable', 'frameMargins',
+            'showTips', 'doubleClick', 'showAxisDragHandles', 'showAxisRangeEntryBoxes', 'showLink', 'sendData',
+            'linkText', 'showSources', 'locale', 'locales'
+        ]
+        config = kwargs.pop('config', {}) or {}
+        # Mover argumentos conocidos a config
+        for key in config_keys:
+            if key in kwargs:
+                config[key] = kwargs.pop(key)
+        return st.plotly_chart(fig, config=config, **kwargs)
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import (
     confusion_matrix, classification_report, accuracy_score, 
@@ -31,27 +51,352 @@ from preprocesamiento import (
     escalar_datos,
     aplicar_pca,
 )
-from visualizaciones import plot_metricas_por_clase
+from modelos import (
+    entrenar_lda,
+    entrenar_qda, 
+    entrenar_bayes,
+    predecir,
+    predecir_lda,
+    predecir_qda,
+    predecir_bayes
+)
 from textos_ayuda import (
-    TEXTO_BAYES,
-    TEXTO_LDA_QDA,
-    TEXTO_PCA,
     GUIA_USO,
     METRICAS_EXPLICADAS,
     BAYES_EXPLICADO,
     PCA_SIDEBAR,
-    CONFIG_AVANZADA,
+    CONFIG_AVANZADA
 )
-from modelos import (
-    entrenar_bayes,
-    entrenar_lda,
-    entrenar_qda,
-    predecir,
+from visualizaciones import plot_metricas_por_clase
+###############################################################
+# === Definición de temas y selección antes de cualquier uso de 'colores' ===
+COLORES_TEMA = {
+    "Oscuro": {
+        "fondo": "#181c25",
+        "fondo_secundario": "#23293a",
+        "texto": "#f3f6fa",
+        "texto_secundario": "#b0b8c9",
+        "acento": "#4f8cff",
+        "exito": "#2ecc71",
+        "error": "#e74c3c",
+        "info": "#3498db",
+        "warning": "#f1c40f",
+        "borde": "#313a4d",
+        "tabla_header": "#23293a",
+        "tabla_row": "#23293a",
+        "tabla_row_alt": "#1a1e29",
+        "input_bg": "#23293a",
+        "input_border": "#4f8cff",
+        "plot_bg": "#23293a",
+        "plot_grid": "#313a4d",
+        "plot_line": "#4f8cff",
+        "plot_font": "#f3f6fa"
+    },
+    "Claro": {
+        "fondo": "#f7f9fb",
+        "fondo_secundario": "#ffffff",
+        "texto": "#23293a",
+        "texto_secundario": "#4f5b6b",
+        "acento": "#0056d6",
+        "exito": "#27ae60",
+        "error": "#c0392b",
+        "info": "#2980b9",
+        "warning": "#e67e22",
+        "borde": "#e1e8ed",
+        "tabla_header": "#eaf0f6",
+        "tabla_row": "#ffffff",
+        "tabla_row_alt": "#f7f9fb",
+        "input_bg": "#ffffff",
+        "input_border": "#0056d6",
+        "plot_bg": "#ffffff",
+        "plot_grid": "#e1e8ed",
+        "plot_line": "#0056d6",
+        "plot_font": "#23293a"
+    }
+}
+
+# ================== TEXTOS TEÓRICOS PLACEHOLDER ==================
+TEXTO_LDA_QDA = """
+El Análisis Discriminante Lineal (LDA) y Cuadrático (QDA) son técnicas de clasificación supervisada que buscan encontrar 
+las mejores fronteras de decisión entre clases mediante proyecciones lineales o cuadráticas del espacio de características.
+"""
+
+TEXTO_BAYES = """
+El Clasificador Bayesiano Ingenuo (Naive Bayes) es un algoritmo de clasificación probabilística basado en el teorema de Bayes,
+que asume independencia condicional entre las características dadas las clases.
+"""
+
+TEXTO_PCA = """
+El Análisis de Componentes Principales (PCA) es una técnica de reducción de dimensionalidad que encuentra las direcciones 
+de máxima varianza en los datos para representarlos en un espacio de menor dimensión.
+"""
+
+# Inicializar el tema en session_state si no existe
+if 'tema' not in st.session_state:
+    st.session_state['tema'] = 'Oscuro'
+
+tema_actual = st.sidebar.radio(
+    "🌗 Tema de la interfaz",
+    ["Oscuro", "Claro"],
+    index=0 if st.session_state['tema'] == 'Oscuro' else 1,
+    key="selector_tema"
 )
+if st.session_state['tema'] != tema_actual:
+    st.session_state['tema'] = tema_actual
+    st.rerun()  # Forzar refresco para aplicar el tema
+colores = COLORES_TEMA[st.session_state['tema']]
+###############################################################
+# CSS dinámico para tema y elementos
+st.markdown(f"""
+    <style>
+    /* Ajustes específicos para select/multiselect: fondo del menú overlay y contraste de opciones */
+    /* Inputs y selects (control principal) */
+    .stTextInput > div > input,
+    .stNumberInput > div > input,
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div,
+    .stSelectbox select,
+    .stMultiSelect select,
+    select,
+    input[type="text"],
+    input[type="number"] {{
+        background-color: {colores['input_bg']} !important;
+        color: {colores['texto']} !important;
+        border: 1.5px solid {colores['input_border']} !important;
+        border-radius: 7px;
+        padding: 7px 10px;
+        transition: border 0.2s, box-shadow 0.2s;
+        box-shadow: 0 1px 4px {colores['borde']}22;
+        font-size: 1.05em;
+    }}
+    /* Focus visual */
+    .stTextInput > div > input:focus,
+    .stNumberInput > div > input:focus,
+    .stSelectbox > div > div:focus,
+    .stMultiSelect > div > div:focus,
+    .stSelectbox select:focus,
+    .stMultiSelect select:focus,
+    select:focus,
+    input[type="text"]:focus,
+    input[type="number"]:focus {{
+        outline: none !important;
+        border-color: {colores['acento']} !important;
+        box-shadow: 0 0 0 2px {colores['acento']}33;
+    }}
+
+    /* Menu overlay (lista de opciones) - asegurar fondo y texto legible */
+    .stSelectbox .css-1n6sfyn-MenuList,
+    .stSelectbox .css-1n6sfyn-Menu,
+    .stSelectbox [role="listbox"],
+    .stMultiSelect .css-1n6sfyn-MenuList,
+    .stMultiSelect .css-1n6sfyn-Menu,
+    .stMultiSelect [role="listbox"] {{
+        background-color: {colores['fondo_secundario']} !important;
+        color: {colores['texto']} !important;
+        border: 1px solid {colores['borde']} !important;
+        border-radius: 8px !important;
+        box-shadow: 0 6px 18px {colores['borde']}44 !important;
+        z-index: 9999 !important;
+    }}
+
+    /* Opciones dentro del menú: asegurar contraste y espaciado */
+    .stSelectbox .css-1n7v3ny-option,
+    .stSelectbox [role="option"],
+    .stMultiSelect .css-1n7v3ny-option,
+    .stMultiSelect [role="option"] {{
+        color: {colores['texto']} !important;
+        background-color: transparent !important;
+        padding: 8px 12px !important;
+        font-size: 1.03em !important;
+    }}
+
+    /* Hover y seleccionado: fondo con acento y texto legible */
+    .stSelectbox .css-1n7v3ny-option:hover,
+    .stSelectbox [role="option"]:hover,
+    .stMultiSelect .css-1n7v3ny-option:hover,
+    .stMultiSelect [role="option"]:hover {{
+        background-color: {colores['acento']}22 !important;
+        color: {colores['texto']} !important;
+    }}
+    .stSelectbox .css-1n7v3ny-option[aria-selected="true"],
+    .stSelectbox [role="option"][aria-selected="true"],
+    .stMultiSelect .css-1n7v3ny-option[aria-selected="true"],
+    .stMultiSelect [role="option"][aria-selected="true"] {{
+        background-color: {colores['acento']}33 !important;
+        color: {colores['texto']} !important;
+        font-weight: 700 !important;
+    }}
+    
+    /* Asegurar altura mínima y alineación del valor seleccionado (evitar recorte de texto) */
+    /* Usar altura flexible para que el control pueda crecer cuando los chips ocupen varias líneas */
+    .stSelectbox > div > div, .stMultiSelect > div > div, .stSelectbox .css-1pahdxg-control, .stMultiSelect .css-1pahdxg-control {{
+        min-height: 56px !important;
+        height: auto !important;
+        display: flex !important;
+        align-items: center !important;
+        padding: 6px 8px !important;
+        line-height: 1.25 !important;
+        gap: 6px !important;
+        box-sizing: border-box !important;
+    }}
+
+    /* Controlar la altura y overflow del valor mostrado (singleValue) */
+    /* Para select simple mantener el recorte en una línea; para multiselect permitir wrapping */
+    .stSelectbox .css-1uccc91-singleValue, .stSelectbox .css-1dimb5e-singleValue {{
+        height: auto !important;
+        line-height: 1.2 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        padding: 6px 8px !important;
+    }}
+    /* En multiselect permitir que el valor mostrado (cuando hay muchas selecciones) se muestre en varias líneas */
+    .stMultiSelect .css-1uccc91-singleValue, .stMultiSelect .css-1dimb5e-singleValue {{
+        height: auto !important;
+        line-height: 1.1 !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+        padding: 4px 6px !important;
+        max-width: 100% !important;
+        display: block !important;
+    }}
+
+    /* Asegurar que el elemento <select> nativo también tenga altura adecuada */
+    .stSelectbox select, .stMultiSelect select {{
+        min-height: 40px !important;
+        height: auto !important;
+    }}
+
+    /* Mejorar apariencia de los 'chips' (valores seleccionados) y permitir que hagan wrap */
+    /* Compatibilidad con varias versiones de Streamlit (nombres de clases variables) */
+    .stMultiSelect .css-1rhbuit-multiValue, .stSelectbox .css-1rhbuit-multiValue,
+    .stMultiSelect .css-1rhbuit-multiValueLabel, .stSelectbox .css-1rhbuit-multiValueLabel,
+    .stMultiSelect .css-12jo7m5, .stSelectbox .css-12jo7m5 {{
+        background-color: {colores['acento']} !important;
+        color: {colores['texto']} !important;
+        border-radius: 12px !important;
+        padding: 6px 10px !important;
+        margin: 4px 6px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        max-width: 100% !important;
+        box-shadow: none !important;
+        font-size: 0.95em !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+    }}
+
+    .stMultiSelect .css-1rhbuit-multiValueLabel, .stSelectbox .css-1rhbuit-multiValueLabel,
+    .stMultiSelect .css-12jo7m5 > span, .stSelectbox .css-12jo7m5 > span {{
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        max-width: 100% !important;
+        padding-right: 6px !important;
+        color: {colores['texto']} !important;
+        display: inline-block !important;
+        line-height: 1.1 !important;
+    }}
+
+    /* Icono de cierre (x) en chips */
+    .stMultiSelect .css-1rhbuit-multiValue__remove, .stSelectbox .css-1rhbuit-multiValue__remove,
+    .stMultiSelect .css-1rhbuit-multiValueRemove, .stSelectbox .css-1rhbuit-multiValueRemove {{
+        color: {colores['texto']} !important;
+        opacity: 0.95 !important;
+        margin-left: 6px !important;
+    }}
+
+    /* Permitir que los valores seleccionados ocupen varias líneas y el control se expanda */
+    .stSelectbox > div > div, .stMultiSelect > div > div, .stSelectbox .css-1pahdxg-control, .stMultiSelect .css-1pahdxg-control {{
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        align-items: flex-start !important;
+        align-content: flex-start !important;
+        max-height: none !important;
+    }}
+
+    /* Asegurar overflow visible para que los chips no queden recortados por contenedores y permitir scroll interno si hay exceso */
+    .stSelectbox, .stMultiSelect {{
+        overflow: visible !important;
+        max-width: 100% !important;
+    }}
+
+    /* Si hay muchísimos chips, permitir que la zona de chips tenga un máximo y scroll vertical interno */
+    .stMultiSelect .css-1pahdxg-control .css-1rhbuit-multiValue, .stMultiSelect .css-1pahdxg-control .css-12jo7m5 {{
+        max-height: calc(3 * 1.6em) !important;
+        overflow-y: auto !important;
+    }}
+
+    /* Placeholder de selectbox/multiselect */
+    ::placeholder {{
+        color: {colores['texto_secundario']} !important;
+        opacity: 1 !important;
+    }}
+
+    /* Evitar forzar fondo transparente en todos los descendientes (provocaba pérdida de contraste) */
+    /* Mantener regla general para botones/tablas/títulos más abajo */
+    /* Botones */
+    .stButton > button {{
+        background-color: {colores['acento']} !important;
+        color: #fff !important;
+        border-radius: 7px;
+        border: none;
+        font-weight: 600;
+        transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+        box-shadow: 0 2px 8px {colores['borde']}22;
+        padding: 8px 22px;
+        font-size: 1.05em;
+        letter-spacing: 0.2px;
+    }}
+    .stButton > button:hover, .stButton > button:focus {{
+        background-color: {colores['texto_secundario']} !important;
+        color: {colores['acento']} !important;
+        box-shadow: 0 4px 16px {colores['acento']}33;
+        cursor: pointer;
+    }}
+    /* Tablas */
+    .stDataFrame thead tr th {{
+        background-color: {colores['tabla_header']} !important;
+        color: {colores['acento']} !important;
+        font-weight: 700;
+        font-size: 1.01em;
+        border-bottom: 2px solid {colores['borde']} !important;
+    }}
+    .stDataFrame tbody tr {{
+        background-color: {colores['tabla_row']} !important;
+        color: {colores['texto']} !important;
+        transition: background 0.2s;
+    }}
+    .stDataFrame tbody tr:nth-child(even) {{
+        background-color: {colores['tabla_row_alt']} !important;
+    }}
+    .stDataFrame tbody tr:hover {{
+        background-color: {colores['acento']}22 !important;
+        color: {colores['acento']} !important;
+        cursor: pointer;
+    }}
+    /* Bordes y detalles */
+    .stDataFrame, .stTextInput, .stSelectbox, .stMultiSelect, .stNumberInput {{
+        border-color: {colores['borde']} !important;
+        border-radius: 7px;
+    }}
+    /* Mensajes de feedback */
+    .stSuccess {{ background-color: {colores['exito']}33 !important; color: {colores['exito']} !important; border-left: 5px solid {colores['exito']} !important; box-shadow: 0 2px 8px {colores['exito']}22; }}
+    .stError {{ background-color: {colores['error']}33 !important; color: {colores['error']} !important; border-left: 5px solid {colores['error']} !important; box-shadow: 0 2px 8px {colores['error']}22; }}
+    .stInfo {{ background-color: {colores['info']}33 !important; color: {colores['info']} !important; border-left: 5px solid {colores['info']} !important; box-shadow: 0 2px 8px {colores['info']}22; }}
+    .stWarning {{ background-color: {colores['warning']}33 !important; color: {colores['warning']} !important; border-left: 5px solid {colores['warning']} !important; box-shadow: 0 2px 8px {colores['warning']}22; }}
+    /* Scrollbar moderno */
+    ::-webkit-scrollbar {{ width: 10px; background: {colores['fondo_secundario']}; }}
+    ::-webkit-scrollbar-thumb {{ background: {colores['borde']}99; border-radius: 6px; }}
+    ::-webkit-scrollbar-thumb:hover {{ background: {colores['acento']}99; }}
+    </style>
+""", unsafe_allow_html=True)
 
 
 
-# NUEVO: Título y selección de tipo de análisis (ahora incluye Bayes Ingenuo)
+
+
 st.title("Inferencia Estadística y Reconocimiento de Patrones")
 
 analisis = st.sidebar.selectbox(
@@ -87,7 +432,7 @@ if df is not None:
             label = st.text_input(f"Nombre descriptivo para la clase '{v}'", value=clase_labels_global.get(v, str(v)), key=f"label_global_{v}")
             clase_labels_global[v] = label if label.strip() else str(v)
         st.session_state["clase_labels_global"] = clase_labels_global
-        st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), use_container_width=True)
+        st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
     st.write("### Vista previa del dataset")
     st.info("""
     **¿Qué es esto?**
@@ -112,7 +457,7 @@ if df is not None:
         max_unique_target = 20
         columnas = df.columns.tolist()
         num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
-        cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or pd.api.types.is_categorical_dtype(df[c]) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
+        cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or isinstance(df[c].dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
         st.caption("""
         **¿Qué es la columna de clase (target)?**
         Es la variable que quieres predecir. Debe ser categórica (por ejemplo: 'especie', 'tipo de vino', 'aprobado/suspendido').
@@ -137,7 +482,7 @@ if df is not None:
                     clase_labels_global[v] = label if label.strip() else str(v)
                 st.session_state["clase_labels_global"] = clase_labels_global
                 st.write("#### Valores únicos de la clase:")
-                st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), use_container_width=True)
+                st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
                 # Mostrar ejemplos de filas para cada valor de clase
                 st.write("#### Ejemplos para cada clase:")
                 from preprocesamiento import mostrar_ejemplos_por_clase
@@ -253,7 +598,7 @@ if df is not None:
                             'Clase': nombres_clase_descriptivos,
                             'Probabilidad': [f"{p:.3f}" for p in probas]
                         })
-                        st.dataframe(df_proba, use_container_width=True)
+                        st.dataframe(df_proba, width='stretch')
                         # Gráfico de barras
                         import plotly.graph_objects as go
                         fig_proba = go.Figure(go.Bar(
@@ -269,7 +614,7 @@ if df is not None:
                             yaxis=dict(range=[0,1]),
                             width=600, height=400
                         )
-                        st.plotly_chart(fig_proba, use_container_width=True)
+                        safe_plotly_chart(fig_proba, width='stretch')
                         # Interpretación automática
                         max_idx = int(np.argmax(probas))
                         max_prob = probas[max_idx]
@@ -324,7 +669,7 @@ if df is not None:
                         with st.expander("Ver curvas ROC", expanded=True):
                             st.write("### Curvas ROC (si hay probabilidades disponibles)")
                             fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names, go, px)
-                            st.plotly_chart(fig_roc, use_container_width=True)
+                            safe_plotly_chart(fig_roc, width='stretch')
                     with st.expander("📋 Reporte de Clasificación Completo", expanded=True):
                         st.caption("""
                         **¿Qué es esto?**
@@ -363,9 +708,9 @@ if df is not None:
                             else:
                                 color = '#ffffff'
                             return f'background-color: {color}; color: #111; font-weight: bold;'
-                        styled = df_report.style.applymap(pastel_metric, subset=['precision','recall','f1-score'])\
+                        styled = df_report.style.map(pastel_metric, subset=['precision','recall','f1-score'])\
                             .format({'precision': '{:.2f}', 'recall': '{:.2f}', 'f1-score': '{:.2f}', 'support': '{:d}'})
-                        st.dataframe(styled, use_container_width=True, hide_index=False)
+                        st.dataframe(styled, width='stretch', hide_index=False)
                         st.markdown("""
                         <div style='margin-bottom: 0.5em;'>
                         <strong>Glosario de colores:</strong><br>
@@ -398,7 +743,7 @@ if df is not None:
         max_unique_target = 20
         columnas = df.columns.tolist()
         num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
-        cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or pd.api.types.is_categorical_dtype(df[c]) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
+        cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or isinstance(df[c].dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
         st.caption("""
         **¿Qué es la columna de clase (target)?**
         Es la variable que quieres predecir. Debe ser categórica (por ejemplo: 'especie', 'tipo de vino', 'aprobado/suspendido').
@@ -555,7 +900,7 @@ if df is not None:
                                 'Clase': nombres_clase,
                                 'Probabilidad': [f"{p:.3f}" for p in probas]
                             })
-                            st.dataframe(df_proba, use_container_width=True)
+                            st.dataframe(df_proba, width='stretch')
                             # Gráfico de barras
                             import plotly.graph_objects as go
                             fig_proba = go.Figure(go.Bar(
@@ -571,7 +916,7 @@ if df is not None:
                                 yaxis=dict(range=[0,1]),
                                 width=600, height=400
                             )
-                            st.plotly_chart(fig_proba, use_container_width=True)
+                            safe_plotly_chart(fig_proba, width='stretch')
                     if algoritmo == "Bayes Ingenuo":
                         st.info("Bayes Ingenuo (Naive Bayes) es un clasificador probabilístico basado en la regla de Bayes y la independencia entre atributos.")
                 # ======== EVALUACIÓN COMPLETA DEL MODELO ========
@@ -603,13 +948,38 @@ if df is not None:
                 cv_splits = min(5, min_samples_per_class) if min_samples_per_class >= 2 else None
                 
                 if cv_splits and cv_splits >= 2:
+                    from sklearn.metrics import make_scorer
+                    import warnings
+                    
+                    # Crear scorers personalizados con zero_division=0 para evitar warnings
+                    def precision_scorer(y_true, y_pred):
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message="Precision is ill-defined")
+                            return precision_score(y_true, y_pred, average='macro', zero_division=0)
+                    
+                    def recall_scorer(y_true, y_pred):
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message="Recall is ill-defined")
+                            return recall_score(y_true, y_pred, average='macro', zero_division=0)
+                    
+                    def f1_scorer(y_true, y_pred):
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message="F-score is ill-defined")
+                            return f1_score(y_true, y_pred, average='macro', zero_division=0)
+                    
+                    custom_precision = make_scorer(precision_scorer)
+                    custom_recall = make_scorer(recall_scorer)
+                    custom_f1 = make_scorer(f1_scorer)
+                    
                     # Múltiples métricas con validación cruzada
                     cv_scores = {}
                     for metric_name, metric_str in [('Accuracy', 'accuracy'), 
-                                                   ('Precision', 'precision_macro'), 
-                                                   ('Recall', 'recall_macro'), 
-                                                   ('F1-Score', 'f1_macro')]:
-                        scores = cross_val_score(model, X_model, y, scoring=metric_str, cv=cv_splits)
+                                                   ('Precision', custom_precision), 
+                                                   ('Recall', custom_recall), 
+                                                   ('F1-Score', custom_f1)]:
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                            scores = cross_val_score(model, X_model, y, scoring=metric_str, cv=cv_splits)
                         cv_scores[metric_name] = scores
                     
                     # Mostrar resultados de CV en columnas
@@ -665,7 +1035,7 @@ if df is not None:
                 if y_prob is not None and len(class_names) > 1:
                     st.write("### 📈 Curvas ROC Interactivas")
                     fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names, go, px)
-                    st.plotly_chart(fig_roc, use_container_width=True)
+                    safe_plotly_chart(fig_roc, width='stretch')
                     # Interpretación del AUC
                     if metricas.get('roc_auc'):
                         auc_val = metricas['roc_auc']
@@ -714,9 +1084,9 @@ if df is not None:
                         else:
                             color = '#ffffff'
                         return f'background-color: {color}; color: #111; font-weight: bold;'
-                    styled = report_df.style.applymap(pastel_metric, subset=['precision','recall','f1-score'])\
+                    styled = report_df.style.map(pastel_metric, subset=['precision','recall','f1-score'])\
                         .format({'precision': '{:.2f}', 'recall': '{:.2f}', 'f1-score': '{:.2f}', 'support': '{:d}'})
-                    st.dataframe(styled, use_container_width=True, hide_index=False)
+                    st.dataframe(styled, width='stretch', hide_index=False)
                 
                 # Comparación de rendimiento por clase
                 st.write("### 📊 Rendimiento por Clase")
@@ -773,7 +1143,9 @@ if df is not None:
                                 cv_accuracy = None
                                 if cv_splits and cv_splits >= 2:
                                     try:
-                                        cv_scores = cross_val_score(modelo, X_model, y, cv=cv_splits, scoring='accuracy')
+                                        with warnings.catch_warnings():
+                                            warnings.filterwarnings("ignore", message="X does not have valid feature names")
+                                            cv_scores = cross_val_score(modelo, X_model, y, cv=cv_splits, scoring='accuracy')
                                         cv_accuracy = np.mean(cv_scores)
                                     except:
                                         pass
@@ -842,7 +1214,7 @@ if df is not None:
                             
                             # Aplicar formato
                             styled_df = df_comparacion.style.apply(highlight_best, axis=0)
-                            st.dataframe(styled_df, use_container_width=True)
+                            st.dataframe(styled_df, width='stretch')
                             
                             # Gráfico comparativo
                             st.write("### 📊 Comparación Visual de Algoritmos")
@@ -970,7 +1342,7 @@ if df is not None:
                                 opacity=0.7
                             )
                             fig_plotly.update_traces(marker=dict(size=6, line=dict(width=0.5, color='DarkSlateGrey')))
-                            st.plotly_chart(fig_plotly, use_container_width=True)
+                            safe_plotly_chart(fig_plotly, width='stretch')
                         else:
                             import plotly.express as px
                             df_plot = pd.DataFrame({
@@ -989,7 +1361,7 @@ if df is not None:
                                 opacity=0.7
                             )
                             fig_plotly.update_traces(marker=dict(size=8, line=dict(width=0.5, color='DarkSlateGrey')))
-                            st.plotly_chart(fig_plotly, use_container_width=True)
+                            safe_plotly_chart(fig_plotly, width='stretch')
                     except Exception as e:
                         st.error(f"No se pudo calcular la proyección: {e}")
                 elif len(feature_cols) == 2:
@@ -1011,7 +1383,7 @@ if df is not None:
                         opacity=0.7
                     )
                     fig_plotly.update_traces(marker=dict(size=8, line=dict(width=0.5, color='DarkSlateGrey')))
-                    st.plotly_chart(fig_plotly, use_container_width=True)
+                    safe_plotly_chart(fig_plotly, width='stretch')
     elif analisis == "Reducción de dimensiones (PCA)":
         # La sección completa de PCA (explicaciones, selección de variables y visualizaciones)
         # está implementada más abajo y usa las variables que se definen después de seleccionar las columnas para PCA.
@@ -1102,7 +1474,7 @@ if df is not None:
             for interp in interpretaciones:
                 st.markdown(f"- {interp}")
 
-            # Visualización de flechas de componentes principales sobre los datos originales
+            # Visualización de flechas de componentes
             with st.expander("Visualización: Flechas de componentes principales sobre los datos originales"):
                 st.markdown("""
                 Este gráfico muestra los datos originales en dos variables seleccionadas y las direcciones de los dos primeros componentes principales (PC1 y PC2) como flechas.
@@ -1549,7 +1921,7 @@ if df is not None:
                 fig_pca = go.Figure(data=data, layout=layout)
                 
                 # Mostrar el gráfico
-                st.plotly_chart(fig_pca, use_container_width=True, config={
+                config_plotly = {
                     'displayModeBar': True,
                     'displaylogo': False,
                     'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
@@ -1559,8 +1931,10 @@ if df is not None:
                         'height': 800,
                         'width': 1200,
                         'scale': 2
-                    }
-                })
+                    },
+                    'responsive': True
+                }
+                safe_plotly_chart(fig_pca, config=config_plotly, use_container_width=True)
                 
                 # Información detallada sobre la visualización
                 with st.expander("🎯 Guía de interpretación del gráfico 3D"):
@@ -1706,7 +2080,7 @@ if df is not None:
                         },
                         title=f"PCA - Proyección {comp_x} vs {comp_y}"
                     )
-                st.plotly_chart(fig_pca, use_container_width=True)
+                safe_plotly_chart(fig_pca, width='stretch')
             # Explicación automática
             with st.expander("¿Cómo interpretar los componentes principales?"):
                 st.markdown("""

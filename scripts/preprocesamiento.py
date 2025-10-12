@@ -6,7 +6,7 @@ def mostrar_ejemplos_por_clase(df, target_col, clase_labels_global, st, n=3):
     for v in clase_unicos:
         nombre_clase = clase_labels_global.get(v, str(v))
         st.caption(f"Ejemplos para la clase '{nombre_clase}':")
-        st.dataframe(df[df[target_col] == v].head(n), use_container_width=True)
+        st.dataframe(df[df[target_col] == v].head(n), width='stretch')
 def detectar_variables_redundantes(df_corr, feature_names, threshold=0.85):
     """
     Devuelve una lista de tuplas (var1, var2, corr) para pares de variables con |correlación| > threshold.

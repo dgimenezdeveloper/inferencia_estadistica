@@ -12,7 +12,10 @@ def entrenar_lda(X, y, store_covariance=True):
     return model
 
 def predecir_lda(model, X):
-    return model.predict(X), model.predict_proba(X) if hasattr(model, 'predict_proba') else None
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="X does not have valid feature names")
+        return model.predict(X), model.predict_proba(X) if hasattr(model, 'predict_proba') else None
 
 # QDA
 
@@ -22,7 +25,10 @@ def entrenar_qda(X, y, store_covariance=True):
     return model
 
 def predecir_qda(model, X):
-    return model.predict(X), model.predict_proba(X) if hasattr(model, 'predict_proba') else None
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="X does not have valid feature names")
+        return model.predict(X), model.predict_proba(X) if hasattr(model, 'predict_proba') else None
 
 # Bayes Ingenuo
 
@@ -32,7 +38,10 @@ def entrenar_bayes(X, y):
     return model
 
 def predecir_bayes(model, X):
-    return model.predict(X), model.predict_proba(X) if hasattr(model, 'predict_proba') else None
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="X does not have valid feature names")
+        return model.predict(X), model.predict_proba(X) if hasattr(model, 'predict_proba') else None
 
 # PCA (solo para proyección, no para clasificación)
 def entrenar_pca(X, n_components):
@@ -43,11 +52,16 @@ def entrenar_pca(X, n_components):
 
 def predecir(model, X):
     """Devuelve (y_pred, y_prob) manejando ausencia de predict_proba."""
-    y_pred = model.predict(X)
-    y_prob = None
-    if hasattr(model, 'predict_proba'):
-        try:
-            y_prob = model.predict_proba(X)
-        except Exception:
-            y_prob = None
+    import warnings
+    
+    # Suprimir warnings específicos de sklearn sobre feature names
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="X does not have valid feature names")
+        y_pred = model.predict(X)
+        y_prob = None
+        if hasattr(model, 'predict_proba'):
+            try:
+                y_prob = model.predict_proba(X)
+            except Exception:
+                y_prob = None
     return y_pred, y_prob
