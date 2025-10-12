@@ -1415,139 +1415,23 @@ if df is not None:
                 pca = _PCA(n_components=n_comp)
                 X_proj = pca.fit_transform(X_pca_scaled)
                 var_exp = pca.explained_variance_ratio_
+                # Mostrar porcentaje de varianza explicada por cada componente antes del gráfico de barras
                 st.write("#### Porcentaje de varianza explicada por cada componente principal:")
                 var_exp_pct = [f"PC{i+1}: {v*100:.2f}%" for i, v in enumerate(var_exp)]
                 st.write(", ".join(var_exp_pct))
-                st.write(f"**Varianza acumulada:** {np.sum(var_exp)*100:.2f}%")
-                # Gráfico modularizado
+                # Gráfico de barras de varianza explicada
                 from visualizaciones import plot_varianza_explicada_pca
+                st.write("### Varianza explicada por cada componente")
+                st.caption("La varianza explicada indica cuánta información conserva cada componente principal. Componentes con mayor varianza explicada son más importantes para representar los datos.")
                 fig_bar = plot_varianza_explicada_pca(var_exp, n_comp)
                 st.pyplot(fig_bar)
-                # Ejemplo de PCA sin escalado y comparación visual
-                with st.expander("Comparación: PCA con y sin escalado de variables"):
-                    st.markdown("""
-                    Este ejemplo muestra la diferencia entre aplicar PCA con variables escaladas (recomendado) y sin escalar (como en el notebook de clase).
-                    Si las variables tienen diferentes unidades o rangos, el PCA sin escalado puede estar dominado por las variables de mayor magnitud.
-                    """)
-                    if n_comp >= 2:
-                        # PCA sin escalado
-                        pca_noesc = PCA(n_components=n_comp)
-                        X_noesc = X_pca.values
-                        X_proj_noesc = pca_noesc.fit_transform(X_noesc)
-                        var_exp_noesc = pca_noesc.explained_variance_ratio_
-                        # Visualización comparativa de proyecciones
-                        fig_comp, ax_comp = plt.subplots(1, 2, figsize=(12, 5))
-                        # Con escalado
-                        ax_comp[0].scatter(X_proj[:, 0], X_proj[:, 1], alpha=0.6, color='dodgerblue')
-                        ax_comp[0].set_title('PCA con escalado (PC1 vs PC2)')
-                        ax_comp[0].set_xlabel('PC1')
-                        ax_comp[0].set_ylabel('PC2')
-                        # Sin escalado
-                        ax_comp[1].scatter(X_proj_noesc[:, 0], X_proj_noesc[:, 1], alpha=0.6, color='orange')
-                        ax_comp[1].set_title('PCA sin escalado (PC1 vs PC2)')
-                        ax_comp[1].set_xlabel('PC1')
-                        ax_comp[1].set_ylabel('PC2')
-                        fig_comp.tight_layout()
-                        st.pyplot(fig_comp)
-                        st.caption("A la izquierda: PCA con escalado (StandardScaler). A la derecha: PCA sin escalado. Observa cómo cambia la orientación y agrupación de los datos.")
-                        # Comparación de varianza explicada
-                        st.write("#### Varianza explicada por los dos primeros componentes:")
-                        st.write(f"Con escalado: PC1 = {var_exp[0]*100:.2f}%, PC2 = {var_exp[1]*100:.2f}%")
-                        st.write(f"Sin escalado: PC1 = {var_exp_noesc[0]*100:.2f}%, PC2 = {var_exp_noesc[1]*100:.2f}%")
-                        st.caption("El escalado permite que todas las variables aporten por igual al análisis. Sin escalado, las variables de mayor rango dominan el resultado.")
-            # Mostrar composición de cada componente principal
-            st.write("### Composición de cada componente principal")
-            comp_matrix = pca.components_
-            from visualizaciones import ecuacion_componente_principal
-            ecuaciones = ecuacion_componente_principal(comp_matrix, feature_cols_pca)
-            for eq in ecuaciones:
-                st.markdown(f"- {eq}")
-            # Matriz de componentes principales
-            st.write("### Matriz de componentes principales (PCA)")
-            st.write(pd.DataFrame(pca.components_, columns=feature_cols_pca, index=[f"PC{i+1}" for i in range(n_comp)]))
-            st.caption("Cada fila representa un componente principal y cada columna el peso de la variable original en ese componente.")
-            st.info("La matriz de componentes principales te muestra cómo se construyen los nuevos ejes (componentes) a partir de tus variables originales. Los valores indican la importancia de cada variable en cada componente.")
-            # Interpretación automática de cada componente principal
-            st.write("### Interpretación automática de los componentes principales")
-            from visualizaciones import interpretar_componentes_principales
-            interpretaciones = interpretar_componentes_principales(pca.components_, feature_cols_pca, top_n=3)
-            for interp in interpretaciones:
-                st.markdown(f"- {interp}")
-
-            # Visualización de flechas de componentes
-            with st.expander("Visualización: Flechas de componentes principales sobre los datos originales"):
-                st.markdown("""
-                Este gráfico muestra los datos originales en dos variables seleccionadas y las direcciones de los dos primeros componentes principales (PC1 y PC2) como flechas.
-                Permite ver cómo se orientan los ejes principales respecto a las variables originales.
-                """)
-                if len(feature_cols_pca) >= 2:
-                    var_x = st.selectbox("Variable para eje X", feature_cols_pca, index=0)
-                    var_y = st.selectbox("Variable para eje Y", [v for v in feature_cols_pca if v != var_x], index=0)
-                    from visualizaciones import plot_flechas_componentes_principales
-                    fig_arrow = plot_flechas_componentes_principales(X_pca, pca, var_x, var_y, feature_cols_pca, scale=5)
-                    st.pyplot(fig_arrow)
-                    st.caption("Las flechas muestran la dirección y sentido de los dos primeros componentes principales en el plano de las variables seleccionadas.")
-            # Matriz de covarianza de los datos originales
-            st.write("### Matriz de covarianza de los datos originales")
-            cov_matrix = np.cov(X_pca.T)
-            df_cov = pd.DataFrame(cov_matrix, index=feature_cols_pca, columns=feature_cols_pca)
-            st.write(df_cov)
-            st.caption("La matriz de covarianza muestra cómo varían conjuntamente las variables originales. Valores altos indican que dos variables tienden a aumentar o disminuir juntas.")
-            st.info("¿Para qué sirve? Permite identificar relaciones y dependencias entre variables. Es la base matemática de PCA y ayuda a detectar variables redundantes o muy correlacionadas.")
-            import seaborn as sns
-            from visualizaciones import plot_heatmap_covarianza
-            fig_cov = plot_heatmap_covarianza(df_cov)
-            st.pyplot(fig_cov)
-            # Matriz de correlación de los datos originales
-            st.write("### Matriz de correlación de los datos originales")
-            corr_matrix = np.corrcoef(X_pca.T)
-            df_corr = pd.DataFrame(corr_matrix, index=feature_cols_pca, columns=feature_cols_pca)
-            st.write(df_corr)
-            st.caption("La matriz de correlación muestra la relación lineal entre variables, normalizada entre -1 y 1. Valores cercanos a +1 o -1 indican fuerte relación positiva o negativa.")
-            st.info("¿Para qué sirve? Permite identificar variables que están muy relacionadas (redundantes) y ayuda a decidir qué variables pueden ser eliminadas o combinadas.")
-            # Recomendación automática de variables redundantes
-            from preprocesamiento import detectar_variables_redundantes
-            redundantes = detectar_variables_redundantes(df_corr, feature_cols_pca, threshold=0.85)
-            if redundantes:
-                st.warning("Variables potencialmente redundantes detectadas (correlación > 0.85 o < -0.85):")
-                for var1, var2, corr in redundantes:
-                    st.write(f"- **{var1}** y **{var2}** (correlación: {corr:.2f})")
-                st.caption("Puedes considerar eliminar o combinar estas variables para simplificar el análisis, ya que aportan información muy similar.")
-            from visualizaciones import plot_heatmap_correlacion
-            fig_corr = plot_heatmap_correlacion(df_corr)
-            st.pyplot(fig_corr)
-            # Gráfico de barras de varianza explicada
-            st.write("### Varianza explicada por cada componente")
-            st.caption("La varianza explicada indica cuánta información conserva cada componente principal. Componentes con mayor varianza explicada son más importantes para representar los datos.")
-            # Ya se usa plot_varianza_explicada_pca arriba, así que solo modularizamos la varianza acumulada:
-            from visualizaciones import plot_varianza_acumulada_pca
-            st.write("### Varianza acumulada por componente")
-            fig_line, codo_idx = plot_varianza_acumulada_pca(var_exp, n_comp)
-            st.info(f"Recomendación automática: El método del codo sugiere usar **{codo_idx}** componentes principales. A partir de aquí, el incremento de varianza explicada es menor a 2%. Puedes ajustar según tu objetivo.")
-            st.pyplot(fig_line)
-
-            st.write("### Varianza acumulada por componente")
-            var_acum = np.cumsum(var_exp)
-            fig_line, ax_line = plt.subplots()
-            x_vals = range(1, n_comp+1)
-            ax_line.plot(x_vals, var_acum, color='red', marker='o')
-            ax_line.set_xlabel('Componente principal')
-            ax_line.set_ylabel('Varianza acumulada')
-            ax_line.set_title('Varianza acumulada por componente')
-            ax_line.set_ylim(0, 1.05)
-            # Método del codo mejorado: siempre muestra la línea azul y el mensaje
-            difs = np.diff(var_acum)
-            codo_idx = None
-            for i, d in enumerate(difs):
-                if d < 0.02:
-                    codo_idx = i + 1
-                    break
-            if codo_idx is None:
-                codo_idx = len(var_acum) - 1  # último componente si no hay codo claro
-            ax_line.axvline(codo_idx+1, color='blue', linestyle='--', label=f'Recomendado: {codo_idx+1} componentes')
-            ax_line.legend()
-            st.info(f"Recomendación automática: El método del codo sugiere usar **{codo_idx+1}** componentes principales. A partir de aquí, el incremento de varianza explicada es menor a 2%. Puedes ajustar según tu objetivo.")
-            st.pyplot(fig_line)
+                # Gráfico de varianza acumulada (solo una vez, modularizado)
+                from visualizaciones import plot_varianza_acumulada_pca
+                st.write("### Varianza acumulada por componente")
+                fig_line, codo_idx = plot_varianza_acumulada_pca(var_exp, n_comp)
+                st.info(f"Recomendación automática: El método del codo sugiere usar **{codo_idx}** componentes principales. A partir de aquí, el incremento de varianza explicada es menor a 2%. Puedes ajustar según tu objetivo.")
+                st.pyplot(fig_line)
+                # ...existing code...
             # Selección dinámica de componentes para visualización
             st.write("### Visualización de componentes principales seleccionados")
             comp_options = [f"PC{i+1}" for i in range(n_comp)]
