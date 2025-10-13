@@ -547,6 +547,21 @@ if df is not None:
                     pca = _PCA(n_components=n_comp)
                     X_model = pca.fit_transform(X_scaled)
                     st.success(f"PCA aplicado: {n_comp} componentes principales conservan al menos {varianza_pca}% de la varianza.")
+
+                    # === MATRIZ DE CORRELACIÓN DE COMPONENTES PRINCIPALES ===
+                    if n_comp >= 2:
+                        import matplotlib.pyplot as plt
+                        import seaborn as sns
+                        st.markdown("---")
+                        st.write("### 📐 Matriz de correlación de los componentes principales (PCA)")
+                        st.caption("Tras aplicar PCA, los componentes principales deberían ser ortogonales (independientes). La matriz debe ser casi diagonal. Si ves valores altos fuera de la diagonal, revisa el preprocesamiento.")
+                        corr_pca = pd.DataFrame(X_model).corr()
+                        fig_corr_pca, ax_corr_pca = plt.subplots(figsize=(min(0.7*n_comp+2, 10), min(0.7*n_comp+2, 10)))
+                        sns.heatmap(corr_pca, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=ax_corr_pca, annot_kws={"size":9})
+                        ax_corr_pca.set_title("Matriz de correlación (componentes principales)")
+                        plt.tight_layout()
+                        st.pyplot(fig_corr_pca)
+                        st.markdown("---")
                 else:
                     X_model = X
                 # Entrenar Bayes ingenuo
