@@ -1424,43 +1424,61 @@ if df is not None:
             n_comp = st.slider("Cantidad de componentes principales", min_value=2, max_value=max_components, value=n_comp_auto)
 
             if run_auto:
-                # Preparar clasificador
-                if classifier_choice == "LogisticRegression":
-                    clf = LogisticRegression(max_iter=2000)
+                # --- OPTIMIZACIÓN DE AUTOSELECCIÓN DE N COMPONENTES PCA ---
+                from sklearn.linear_model import LogisticRegression
+                from sklearn.model_selection import cross_val_score
+                import numpy as np
+                import time
+                st.info("Optimizando: se probarán menos valores de n y el cálculo será paralelo y más rápido.")
+                cv_splits = min(3, max(2, n_samples // 10))
+                if max_components <= 15:
+                    n_range = list(range(1, max_components+1))
                 else:
-                    clf = LogisticRegression(max_iter=2000)
-
-                try:
-                    resultado_cv = elegir_n_pca_cv(X_pca_scaled, df[class_col_pca] if class_col_pca != "(Ninguna)" else None,
-                                                    clf, max_components=max_components, metric=metric_choice,
-                                                    cv=5, tol=tol_cv, random_state=0)
-                except Exception as e:
-                    st.error(f"Auto-selección falló: {e}")
-                    resultado_cv = None
-
-                if resultado_cv is not None:
-                    import matplotlib.pyplot as plt
-                    n_list = resultado_cv['n_list']
-                    means = resultado_cv['means']
-                    stds = resultado_cv['stds']
-                    chosen_n = resultado_cv['chosen_n']
-                    best_n = resultado_cv['best_n']
-                    best_mean = resultado_cv['best_mean']
-
-                    fig, ax = plt.subplots(figsize=(6,3))
-                    ax.plot(n_list, means, marker='o', label=f"{resultado_cv['metric']}")
-                    ax.fill_between(n_list, np.array(means)-np.array(stds), np.array(means)+np.array(stds), alpha=0.2)
-                    ax.axvline(chosen_n, color='green', linestyle='--', label=f"n recomendado = {chosen_n}")
-                    ax.axvline(best_n, color='orange', linestyle=':', label=f"n mejor = {best_n}")
-                    ax.set_xlabel('Número de componentes')
-                    ax.set_ylabel(resultado_cv['metric'])
-                    ax.set_title('Curva CV: métrica vs n de PCA')
-                    ax.legend()
-                    st.pyplot(fig)
-
-                    st.success(f"Selección completada: n recomendado = {chosen_n} (mejor n = {best_n}, score = {best_mean:.3f})")
-                    # Actualizar el slider con el n recomendado
-                    n_comp = st.slider("Cantidad de componentes principales", min_value=2, max_value=max_components, value=int(chosen_n))
+                    n_range = list(range(1, 11)) + list(range(12, max_components+1, 2))
+                clf = LogisticRegression(max_iter=200, solver='saga', n_jobs=-1, random_state=42)
+                metric = metric_choice
+                scores = []
+                t0 = time.time()
+                # Validar y_cv: si no hay columna de clase válida, mostrar error y abortar
+                if class_col_pca == "(Ninguna)" or class_col_pca not in df.columns:
+                    st.error("Debes seleccionar una columna de clase válida para la auto-selección por CV.")
+                else:
+                    y_cv = df[class_col_pca]
+                    for n in n_range:
+                        pca = PCA(n_components=n, random_state=42)
+                        X_proj = pca.fit_transform(X_pca_scaled)
+                        try:
+                            score = cross_val_score(clf, X_proj, y_cv, cv=cv_splits, scoring=metric, n_jobs=-1)
+                            scores.append(np.mean(score))
+                        except Exception as e:
+                            scores.append(np.nan)
+                    t1 = time.time()
+                    st.success(f"Auto-selección completada en {t1-t0:.2f} segundos. Prueba menos valores de n para mayor velocidad.")
+                    scores_arr = np.array(scores)
+                    if np.all(np.isnan(scores_arr)):
+                        st.error("No se pudo calcular ningún score de validación cruzada. Verifica que la columna de clase tenga al menos dos clases y suficientes muestras.")
+                    else:
+                        best_idx = np.nanargmax(scores_arr)
+                        best_score = scores_arr[best_idx]
+                        tol = tol_cv
+                        n_recomendado = None
+                        for i, s in enumerate(scores_arr):
+                            if not np.isnan(s) and s >= best_score * (1-tol):
+                                n_recomendado = n_range[i]
+                                break
+                        import matplotlib.pyplot as plt
+                        fig, ax = plt.subplots(figsize=(6,3))
+                        ax.plot(n_range, scores_arr, marker='o', label=f"{metric}")
+                        ax.axvline(n_range[best_idx], color='r', linestyle='--', label=f'Máximo score (n={n_range[best_idx]})')
+                        if n_recomendado is not None:
+                            ax.axvline(n_recomendado, color='g', linestyle=':', label=f'Recomendado (n={n_recomendado})')
+                        ax.set_xlabel('n componentes')
+                        ax.set_ylabel(metric)
+                        ax.set_title('Score CV vs n componentes')
+                        ax.legend()
+                        st.pyplot(fig)
+                        st.info(f"Mejor score: {best_score:.3f} con n={n_range[best_idx]}. Recomendado: n={n_recomendado} (tolerancia {tol*100:.1f}%)")
+                        n_comp = st.slider("Cantidad de componentes principales", min_value=2, max_value=max_components, value=int(n_recomendado if n_recomendado is not None else n_range[best_idx]))
             if max_components < n_comp:
                 st.error(f"No se puede aplicar PCA con {n_comp} componentes. El dataset tiene solo {n_samples} muestra(s) y {n_features} característica(s). El número de componentes debe ser menor o igual a {max_components}.")
             else:

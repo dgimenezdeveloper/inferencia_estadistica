@@ -1,9 +1,3 @@
----
-title: Guía Completa de PCA y Selección Automática
-author: Asistente IA
-date: 12 de octubre de 2025
----
-
 # Guía Completa de PCA y Selección Automática
 
 ## ¿Qué es PCA y para qué sirve?
