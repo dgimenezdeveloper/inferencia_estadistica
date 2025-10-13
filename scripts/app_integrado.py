@@ -32,6 +32,7 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler, label_binarize
 from sklearn.decomposition import PCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+from sklearn.linear_model import LogisticRegression
 import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
@@ -50,6 +51,7 @@ from preprocesamiento import (
     manejar_nulos,
     escalar_datos,
     aplicar_pca,
+    elegir_n_pca_cv,
 )
 from modelos import (
     entrenar_lda,
@@ -1407,7 +1409,58 @@ if df is not None:
             # Usar aplicar_pca para sugerir n_comp_auto y obtener proyección completa
             X_proj_auto, pca_auto, var_exp_full, n_comp_auto = aplicar_pca(X_pca_scaled, varianza_min=varianza_deseada/100)
             st.write(f"Se requieren **{n_comp_auto}** componentes principales para alcanzar al menos {varianza_deseada}% de varianza acumulada.")
+            # Opción de auto-selección por validación cruzada
+            st.markdown("---")
+            st.write("#### Auto-selección de número de componentes vía CV (clasificación)")
+            col_auto1, col_auto2, col_auto3 = st.columns([2,2,1])
+            with col_auto1:
+                classifier_choice = st.selectbox("Clasificador (para CV)", ["LogisticRegression"], index=0, key="cv_classifier")
+            with col_auto2:
+                metric_choice = st.selectbox("Métrica CV", ["f1_macro", "accuracy"], index=0, key="cv_metric")
+            with col_auto3:
+                tol_cv = st.number_input("Tolerancia (rel)", min_value=0.0, max_value=0.2, value=0.01, step=0.01, key="cv_tol")
+            run_auto = st.button("Auto-seleccionar n (CV)", key="btn_auto_pca")
+
             n_comp = st.slider("Cantidad de componentes principales", min_value=2, max_value=max_components, value=n_comp_auto)
+
+            if run_auto:
+                # Preparar clasificador
+                if classifier_choice == "LogisticRegression":
+                    clf = LogisticRegression(max_iter=2000)
+                else:
+                    clf = LogisticRegression(max_iter=2000)
+
+                try:
+                    resultado_cv = elegir_n_pca_cv(X_pca_scaled, df[class_col_pca] if class_col_pca != "(Ninguna)" else None,
+                                                    clf, max_components=max_components, metric=metric_choice,
+                                                    cv=5, tol=tol_cv, random_state=0)
+                except Exception as e:
+                    st.error(f"Auto-selección falló: {e}")
+                    resultado_cv = None
+
+                if resultado_cv is not None:
+                    import matplotlib.pyplot as plt
+                    n_list = resultado_cv['n_list']
+                    means = resultado_cv['means']
+                    stds = resultado_cv['stds']
+                    chosen_n = resultado_cv['chosen_n']
+                    best_n = resultado_cv['best_n']
+                    best_mean = resultado_cv['best_mean']
+
+                    fig, ax = plt.subplots(figsize=(6,3))
+                    ax.plot(n_list, means, marker='o', label=f"{resultado_cv['metric']}")
+                    ax.fill_between(n_list, np.array(means)-np.array(stds), np.array(means)+np.array(stds), alpha=0.2)
+                    ax.axvline(chosen_n, color='green', linestyle='--', label=f"n recomendado = {chosen_n}")
+                    ax.axvline(best_n, color='orange', linestyle=':', label=f"n mejor = {best_n}")
+                    ax.set_xlabel('Número de componentes')
+                    ax.set_ylabel(resultado_cv['metric'])
+                    ax.set_title('Curva CV: métrica vs n de PCA')
+                    ax.legend()
+                    st.pyplot(fig)
+
+                    st.success(f"Selección completada: n recomendado = {chosen_n} (mejor n = {best_n}, score = {best_mean:.3f})")
+                    # Actualizar el slider con el n recomendado
+                    n_comp = st.slider("Cantidad de componentes principales", min_value=2, max_value=max_components, value=int(chosen_n))
             if max_components < n_comp:
                 st.error(f"No se puede aplicar PCA con {n_comp} componentes. El dataset tiene solo {n_samples} muestra(s) y {n_features} característica(s). El número de componentes debe ser menor o igual a {max_components}.")
             else:
@@ -2003,6 +2056,109 @@ if df is not None:
 # ======== SECCIÓN DE AYUDA Y DOCUMENTACIÓN ========
 st.sidebar.markdown("---")
 st.sidebar.write("## 📚 Ayuda y Documentación")
+
+# ================== TEORÍA Y GUÍA COMPLETA DE PCA ==================
+with st.sidebar.expander("📖 Teoría y guía completa de PCA", expanded=False):
+    st.markdown("""
+### ¿Qué es PCA y para qué sirve?
+El Análisis de Componentes Principales (PCA) es una técnica de reducción de dimensionalidad. Busca transformar un conjunto de variables posiblemente correlacionadas en un conjunto más pequeño de variables nuevas (componentes principales), que explican la mayor parte de la varianza de los datos.
+
+**¿Por qué es importante?**
+- Permite visualizar datos complejos en 2D/3D.
+- Elimina redundancia y ruido.
+- Facilita la clasificación y el clustering.
+
+---
+### ¿Qué significa la varianza en PCA?
+La varianza mide cuánta información (o dispersión) de los datos conserva cada componente principal. Un componente con alta varianza explica más de la estructura original de los datos.
+
+**Varianza explicada**: porcentaje de la información total que captura cada componente.
+
+**Varianza acumulada**: suma de la varianza explicada por los primeros n componentes. Se usa para decidir cuántos componentes conservar.
+
+---
+### ¿Cómo interpretar los gráficos de PCA?
+- **Gráfico de varianza explicada**: ayuda a decidir cuántos componentes usar (busca el “codo” de la curva).
+- **Gráfico de dispersión (2D/3D)**: cada punto es una muestra proyectada en los componentes principales. Si los grupos (clases) se separan bien, es más fácil clasificarlos.
+- **Solapamiento de grupos**: si los puntos de diferentes clases se mezclan, significa que esas clases tienen características similares y serán más difíciles de separar.
+
+---
+### ¿Qué es la matriz de componentes y los loadings?
+La matriz de componentes muestra cómo cada variable original contribuye a cada componente principal (los “loadings” o pesos).
+- Un valor alto (positivo o negativo) indica que esa variable influye mucho en ese componente.
+- El signo indica la dirección, pero no si “ayuda” o “perjudica” la clasificación.
+
+---
+### ¿Cómo elegir el número de componentes?
+- Tradicionalmente, se elige el número de componentes que explica al menos el 80% de la varianza acumulada.
+- Mejor aún: usar la auto-selección por validación cruzada (ver sección “Guía PCA y selección automática”) para elegir el n que maximiza el rendimiento del clasificador.
+
+---
+### Preguntas frecuentes
+**¿Puedo usar PCA con variables categóricas?**
+No directamente. PCA requiere variables numéricas. Convierte las categóricas a numéricas primero.
+
+**¿Qué pasa si todos los grupos se mezclan en el gráfico?**
+Significa que las clases son muy similares en las variables elegidas. Prueba con otras variables o técnicas.
+
+**¿El signo de los loadings indica si una variable ayuda o perjudica?**
+No. Solo indica la dirección en el espacio de componentes. Lo importante es el valor absoluto (magnitud).
+
+**¿Por qué a veces el mejor n de componentes no coincide con el 80% de varianza?**
+Porque la varianza no siempre se traduce en mejor capacidad de clasificación. Por eso es mejor usar validación cruzada.
+
+
+""")
+
+# ================== GUÍA PCA Y SELECCIÓN AUTOMÁTICA ==================
+with st.sidebar.expander("🧑‍🏫 Guía PCA y selección automática (CV)", expanded=False):
+    st.markdown("""
+### ¿Qué es la auto-selección de componentes PCA por validación cruzada (CV)?
+
+Esta funcionalidad te ayuda a elegir **cuántos componentes principales (n)** usar en PCA, pero de forma **objetiva y automática**, basándose en el rendimiento real de un modelo de clasificación (no solo en la varianza explicada).
+
+**¿Cómo funciona?**
+1. Escala los datos.
+2. Para cada posible n (número de componentes):
+   - Aplica PCA con ese n.
+   - Proyecta los datos.
+   - Entrena y evalúa un clasificador (por defecto, LogisticRegression) usando validación cruzada (CV).
+   - Guarda el promedio de la métrica elegida (accuracy o f1_macro).
+3. Busca el n más pequeño cuya media de score esté dentro de la tolerancia (por ejemplo, 1%) del mejor resultado observado.
+4. Te muestra una gráfica: eje X = n, eje Y = score. Marca el n recomendado y el n con mejor score.
+5. Actualiza el slider de componentes con el n recomendado.
+
+---
+### ¿Qué es un clasificador? ¿Por qué LogisticRegression?
+- Un **clasificador** es un modelo que predice a qué clase pertenece cada muestra (por ejemplo, género musical, tipo de vino, etc.).
+- **LogisticRegression** es un modelo simple y estándar, ideal para comparar y medir la separabilidad de los datos tras PCA.
+- No es el modelo final, solo una “regla de evaluación” para comparar cuántos componentes usar.
+
+---
+### ¿Qué significan las métricas?
+- **accuracy**: Porcentaje de aciertos totales. Útil si las clases están balanceadas.
+- **f1_macro**: Promedio del F1-score de cada clase. Mejor si tienes clases desbalanceadas o te importa el rendimiento en todas las clases por igual.
+
+---
+### ¿Qué es la tolerancia?
+- Es el margen de “flexibilidad” para elegir el número de componentes.
+- Ejemplo: si el mejor score se logra con 14 componentes, pero con 13 el score es solo 1% menor, la tolerancia de 0.01 (1%) permite elegir 13 (menos dimensiones, casi mismo rendimiento).
+
+---
+### ¿Por qué usar este método?
+- Así eliges el número de componentes que realmente maximiza (o casi) el rendimiento de tu clasificador, no solo la varianza explicada.
+- Evitas usar más dimensiones de las necesarias (menos sobreajuste, más interpretabilidad).
+- Es un método objetivo, reproducible y adaptado a tu dataset y problema de clasificación.
+
+---
+### Consejos para el parcial
+- Si te preguntan “¿cuántos componentes usar?”, responde: “Elijo el n que maximiza el rendimiento de mi clasificador según validación cruzada, usando f1_macro si hay desbalance de clases, o accuracy si no”.
+- Si te piden justificar: “No me baso solo en la varianza explicada, sino en el rendimiento real del modelo sobre los datos proyectados”.
+- Puedes mostrar la gráfica de score vs n y explicar cómo se eligió el n recomendado.
+
+---
+### ¿Quieres más ejemplos o analogías? ¡Pregúntame!
+""")
 
 with st.sidebar.expander("📖 Guía de uso"):
     st.markdown(GUIA_USO)
