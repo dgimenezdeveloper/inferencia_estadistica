@@ -506,6 +506,23 @@ if df is not None:
             Son las variables que el modelo usará para predecir la clase. Deben ser numéricas (por ejemplo: 'edad', 'alcohol', 'longitud').
             Elige aquellas que creas relevantes para la predicción. Puedes seleccionar varias.
             """)
+
+            # === MATRIZ DE CORRELACIÓN DE FEATURES ===
+            if feature_cols and len(feature_cols) >= 2:
+                st.markdown("---")
+                st.write("### 🔗 Matriz de correlación entre variables seleccionadas")
+                st.caption("El clasificador Bayes Ingenuo asume independencia entre variables. Si ves correlaciones fuertes (valores cercanos a 1 o -1 fuera de la diagonal), considera aplicar PCA o eliminar variables redundantes para mejorar el modelo.")
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+                corr_bayes = df[feature_cols].corr()
+                fig_corr, ax_corr = plt.subplots(figsize=(min(0.7*len(feature_cols)+2, 10), min(0.7*len(feature_cols)+2, 10)))
+                sns.heatmap(corr_bayes, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=ax_corr, annot_kws={"size":9})
+                ax_corr.set_title("Matriz de correlación (features seleccionadas)")
+                plt.tight_layout()
+                st.pyplot(fig_corr)
+                st.markdown("---")
+            elif feature_cols:
+                st.info("Selecciona al menos dos variables numéricas para ver la matriz de correlación.")
             # Opción de preprocesamiento PCA
             usar_pca = st.checkbox("Aplicar reducción de dimensiones (PCA) como preprocesamiento", value=False, key="usar_pca_bayes")
             if usar_pca and feature_cols:
