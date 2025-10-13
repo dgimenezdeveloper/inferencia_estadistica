@@ -716,6 +716,24 @@ if df is not None:
                             st.success(f"Con umbral {threshold:.2f}, la clase predicha es **{clases_superan[0][0]}** (probabilidad {clases_superan[0][1]:.1%}).")
                         else:
                             st.warning(f"Con umbral {threshold:.2f}, varias clases superan el umbral: " + ", ".join([f"{c} ({p:.1%})" for c, p in clases_superan]))
+
+                    # Explicación didáctica sobre confianza y umbral de decisión
+                    st.info("""
+**¿Qué significa la confianza de la predicción?**  
+La confianza es la probabilidad que el modelo asigna a la clase predicha. Si la probabilidad es alta (por ejemplo, 0.95), el modelo está muy seguro. Si es intermedia (por ejemplo, 0.75-0.85), la confianza es moderada. Si varias clases tienen probabilidades similares, la predicción es incierta.
+
+**¿Para qué sirve el umbral de decisión?**  
+El umbral es el valor mínimo de probabilidad que debe superar una clase para que el modelo la asigne como predicción. Si ninguna clase supera el umbral, la predicción se considera incierta.  
+Esto te permite ser más exigente: solo aceptar predicciones cuando el modelo está realmente seguro.
+
+**Ejemplo práctico:**
+- Si el umbral es 0.80 y la clase 2 tiene probabilidad 0.87, la predicción es la clase 2 con confianza moderada.
+- Si ninguna clase supera 0.80, el modelo no hace una predicción segura y te avisa que la observación es ambigua.
+
+**¿Cuándo ajustar el umbral?**
+- Si prefieres evitar errores y solo aceptar predicciones muy seguras, sube el umbral.
+- Si prefieres que el modelo siempre dé una respuesta, usa el umbral por defecto (0.5 o menor).
+""")
                 # ======== EVALUACIÓN COMPLETA DEL MODELO ========
                 with st.expander("3️⃣ Evaluación completa del modelo", expanded=True):
                     st.write("## 📊 Evaluación del Modelo")
