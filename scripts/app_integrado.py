@@ -521,6 +521,32 @@ if df is not None:
                 plt.tight_layout()
                 st.pyplot(fig_corr)
                 st.markdown("---")
+
+                # --- EXPLICACIÓN AUTOMÁTICA SI SE ELIMINAN VARIABLES CORRELACIONADAS Y BAJAN LAS MÉTRICAS ---
+                # Guardar en session_state el set de features y la métrica anterior SOLO si no existe
+                if 'last_feature_cols' not in st.session_state:
+                    st.session_state['last_feature_cols'] = feature_cols.copy()
+                if 'last_bayes_metrics' not in st.session_state:
+                    st.session_state['last_bayes_metrics'] = None
+                # Detectar si se quitó una o más variables correlacionadas
+                prev_cols = set(st.session_state['last_feature_cols'])
+                curr_cols = set(feature_cols)
+                removed = list(prev_cols - curr_cols)
+                correlaciones_altas = []
+                try:
+                    all_corr = df[list(prev_cols)].corr().abs()
+                    for removed_var in removed:
+                        if removed_var in all_corr:
+                            corrs = all_corr[removed_var].drop(removed_var)
+                            if not corrs.empty:
+                                for var in curr_cols:
+                                    if var in corrs and corrs[var] > 0.8:
+                                        correlaciones_altas.append((removed_var, var, corrs[var]))
+                    if correlaciones_altas:
+                        st.session_state['last_removed_corr_var'] = correlaciones_altas
+                except Exception as e:
+                    st.info(f"[Depuración] No se pudo calcular correlación previa: {e}")
+                st.session_state['last_feature_cols'] = feature_cols.copy()
             elif feature_cols:
                 st.info("Selecciona al menos dos variables numéricas para ver la matriz de correlación.")
             # Opción de preprocesamiento PCA
@@ -564,8 +590,28 @@ if df is not None:
                         st.markdown("---")
                 else:
                     X_model = X
+
                 # Entrenar Bayes ingenuo
                 model = entrenar_bayes(X_model, y)
+
+                # Calcular y guardar métricas actuales para comparación automática
+                from modelos import predecir
+                y_pred, y_prob = predecir(model, X_model)
+                class_labels_global = st.session_state.get("clase_labels_global", {})
+                class_names = [class_labels_global.get(c, str(c)) for c in model.classes_]
+                from metricas import calcular_metricas_clasificacion
+                metricas_actuales = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names, st=None)
+                acc_actual = metricas_actuales['accuracy'] if metricas_actuales and 'accuracy' in metricas_actuales else None
+                # Comparar con la métrica anterior si corresponde
+                acc_anterior = st.session_state.get('last_bayes_metrics', None)
+                if acc_actual is not None and acc_anterior is not None and acc_actual < acc_anterior - 0.003:
+                    if 'last_removed_corr_var' in st.session_state and st.session_state['last_removed_corr_var']:
+                        correlaciones_altas = st.session_state['last_removed_corr_var']
+                        for removed_var, max_corr_var, max_corr_val in correlaciones_altas:
+                            st.warning(f"\n**Atención:** Has eliminado la variable '{removed_var}', que estaba altamente correlacionada con '{max_corr_var}' (correlación = {max_corr_val:.2f}). Aunque la correlación era alta, ambas variables aportaban información útil para la clasificación. Si al quitar una variable correlacionada bajan las métricas, es mejor dejarlas ambas. La correlación es una guía, pero lo importante es el rendimiento final del modelo.\n\nPuedes dejar ambas variables si mejoran el desempeño, aunque no cumplan la independencia total.")
+                        st.session_state['last_removed_corr_var'] = None
+                # Guardar la métrica actual para la próxima comparación
+                st.session_state['last_bayes_metrics'] = acc_actual
                 with st.expander("2️⃣ Predicción interactiva y probabilidades por clase", expanded=True):
                     st.write("### Ingresa una observación para predecir la clase")
                     st.info("""
