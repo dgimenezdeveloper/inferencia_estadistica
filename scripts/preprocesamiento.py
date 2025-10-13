@@ -86,3 +86,90 @@ def aplicar_pca(X_scaled, varianza_min=0.8):
     pca = PCA(n_components=n_comp_auto)
     X_proj = pca.fit_transform(X_scaled)
     return X_proj, pca, pca.explained_variance_ratio_, n_comp_auto
+
+def elegir_n_pca_cv(X, y, classifier, max_components=30, metric='f1_macro', cv=5, tol=0.01, random_state=0):
+    """
+    Selecciona automáticamente el número mínimo de componentes PCA que consigue
+    una puntuación de validación cruzada dentro de la tolerancia `tol` del
+    mejor resultado observado.
+
+    Parámetros
+    - X: array-like (n_samples, n_features) sin escalar o ya escalado (se escala internamente)
+    - y: array-like (n_samples,) etiquetas de clase (necesario para clasificación)
+    - classifier: objeto sklearn que implemente fit/predict (ej. LogisticRegression())
+    - max_components: máximo número de componentes a evaluar
+    - metric: métrica usada por cross_val_score (por ejemplo 'f1_macro' o 'accuracy')
+    - cv: número máximo de folds (se ajusta en caso de clases con pocas muestras)
+    - tol: tolerancia relativa (por ejemplo 0.01 significa dentro del 1% del mejor score)
+    - random_state: semilla para reproducibilidad
+
+    Retorna un diccionario con las listas de n evaluadas, medias, desviaciones, el n elegido y la mejor media.
+    """
+    import math
+    from sklearn.model_selection import StratifiedKFold, cross_val_score
+    from sklearn.preprocessing import StandardScaler
+
+    if y is None:
+        raise ValueError("y no puede ser None para la selección basada en clasificación")
+
+    # Convertir a arrays y escalar
+    X_arr = np.asarray(X)
+    y_arr = np.asarray(y)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_arr)
+
+    n_samples, n_features = X_scaled.shape
+    max_components = min(max_components, n_samples, n_features)
+
+    # Ajustar número de splits de CV según la clase con menos muestras
+    try:
+        import pandas as _pd
+        min_samples_per_class = _pd.Series(y_arr).value_counts().min()
+    except Exception:
+        # fallback
+        unique, counts = np.unique(y_arr, return_counts=True)
+        min_samples_per_class = counts.min()
+
+    cv_splits = min(cv, int(min_samples_per_class)) if min_samples_per_class >= 2 else None
+    if not cv_splits or cv_splits < 2:
+        raise ValueError(f"Imposible hacer CV con las clases actuales: muestras por clase mínimo = {min_samples_per_class}")
+
+    skf = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=random_state)
+
+    n_list = list(range(1, max_components + 1))
+    means = []
+    stds = []
+
+    for n in n_list:
+        pca = PCA(n_components=n)
+        Xp = pca.fit_transform(X_scaled)
+        scores = cross_val_score(classifier, Xp, y_arr, cv=skf, scoring=metric, n_jobs=1)
+        means.append(scores.mean())
+        stds.append(scores.std())
+
+    means = np.array(means)
+    stds = np.array(stds)
+
+    best_idx = int(np.argmax(means))
+    best_mean = float(means[best_idx])
+
+    # Elegir el menor n cuya media esté dentro de la tolerancia relativa del mejor
+    threshold = best_mean * (1.0 - float(tol))
+    chosen_n = None
+    for i, m in enumerate(means):
+        if m >= threshold:
+            chosen_n = n_list[i]
+            break
+    if chosen_n is None:
+        chosen_n = n_list[best_idx]
+
+    return {
+        'n_list': n_list,
+        'means': means.tolist(),
+        'stds': stds.tolist(),
+        'chosen_n': int(chosen_n),
+        'best_n': int(n_list[best_idx]),
+        'best_mean': best_mean,
+        'metric': metric,
+        'cv_splits': cv_splits
+    }
