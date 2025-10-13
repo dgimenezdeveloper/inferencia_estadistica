@@ -1502,6 +1502,84 @@ if df is not None:
                 fig_line, codo_idx = plot_varianza_acumulada_pca(var_exp, n_comp)
                 st.info(f"Recomendación automática: El método del codo sugiere usar **{codo_idx}** componentes principales. A partir de aquí, el incremento de varianza explicada es menor a 2%. Puedes ajustar según tu objetivo.")
                 st.pyplot(fig_line)
+                # === MATRIZ DE COMPONENTES PRINCIPALES (LOADINGS) ===
+                with st.expander("🔬 Matriz de componentes principales (loadings) y explicación", expanded=False):
+                    st.markdown("""
+                    **¿Qué es esto?**
+                    La matriz de componentes principales muestra cómo cada variable original contribuye a cada componente principal (los “loadings” o pesos).
+                    - Un valor alto (positivo o negativo) indica que esa variable influye mucho en ese componente.
+                    - El signo indica la dirección, pero no si “ayuda” o “perjudica” la clasificación.
+                    - Los valores cercanos a cero indican poca influencia de esa variable en ese componente.
+                    """)
+                    # Mostrar la matriz de componentes principales (loadings)
+                    loadings = pd.DataFrame(pca.components_, columns=feature_cols_pca, index=[f"PC{i+1}" for i in range(len(pca.components_))])
+                    st.dataframe(loadings.style.format("{:.3f}"), use_container_width=True)
+                    st.caption("Cada fila es un componente principal, cada columna es una variable original. Los valores indican la importancia (peso) de cada variable en ese componente.")
+                    # Gráfico de barras de loadings para un componente seleccionado
+                    st.markdown("**Visualización de los pesos (loadings) para un componente:**")
+                    comp_idx = st.selectbox("Selecciona el componente para ver los pesos (loadings):", loadings.index, index=0, key="select_loading_comp")
+                    fig_load, ax_load = plt.subplots(figsize=(8, 3))
+                    loadings.loc[comp_idx].plot(kind='bar', ax=ax_load, color='teal', alpha=0.7)
+                    ax_load.set_ylabel('Peso (loading)')
+                    ax_load.set_title(f'Pesos de variables en {comp_idx}')
+                    ax_load.axhline(0, color='gray', linewidth=1)
+                    plt.tight_layout()
+                    st.pyplot(fig_load)
+                    st.caption("Las barras muestran la magnitud y dirección de la contribución de cada variable al componente seleccionado. Valores altos (positivos o negativos) indican mayor influencia.")
+
+                    # Mostrar la combinación lineal explícita del componente seleccionado
+                    st.markdown("**Combinación lineal del componente seleccionado:**")
+                    coefs = loadings.loc[comp_idx]
+                    terms = []
+                    for var, coef in coefs.items():
+                        if abs(coef) < 1e-4:
+                            continue  # omitir coeficientes despreciables
+                        sign = '+' if coef >= 0 else '-'
+                        val = f"{abs(coef):.3f}"
+                        terms.append(f"{sign} {val} × {var}")
+                    if terms:
+                        # El primer término puede tener signo +, lo quitamos para estética
+                        if terms[0].startswith('+ '):
+                            terms[0] = terms[0][2:]
+                        formula = f"{comp_idx} = " + ' '.join(terms)
+                        st.code(formula, language="latex")
+                        st.caption("Esta expresión muestra cómo se calcula el valor del componente principal como combinación lineal de las variables originales. Los coeficientes indican el peso y la dirección de cada variable en el componente.")
+                    else:
+                        st.info("Este componente tiene coeficientes muy pequeños para todas las variables.")
+
+                # === MATRIZ DE COVARIANZA Y CORRELACIÓN DE LOS COMPONENTES PRINCIPALES ===
+                import seaborn as sns
+                with st.expander("📐 Matriz de covarianza y correlación de los componentes principales", expanded=False):
+                    st.markdown("""
+                    **¿Qué es esto?**
+                    - La **matriz de covarianza** muestra cómo varían conjuntamente los componentes principales. Valores altos (positivos o negativos) indican que dos componentes tienden a aumentar o disminuir juntos.
+                    - La **matriz de correlación** muestra la relación lineal entre los componentes principales, normalizada entre -1 y 1.
+                    - En PCA, los componentes principales son ortogonales, por lo que la matriz de correlación fuera de la diagonal debe ser cercana a cero.
+                    """)
+                    # Matriz de covarianza de los componentes principales
+                    cov_pcs = np.cov(X_proj.T)
+                    cov_df = pd.DataFrame(cov_pcs, index=[f"PC{i+1}" for i in range(X_proj.shape[1])], columns=[f"PC{i+1}" for i in range(X_proj.shape[1])])
+                    st.write("#### Matriz de covarianza de los componentes principales:")
+                    st.dataframe(cov_df.style.format("{:.3f}"), use_container_width=True)
+                    fig_cov, ax_cov = plt.subplots(figsize=(5, 4))
+                    sns.heatmap(cov_df, annot=True, fmt=".2f", cmap="YlGnBu", ax=ax_cov, annot_kws={"size":8})
+                    ax_cov.set_title("Heatmap matriz de covarianza (PCs)")
+                    plt.tight_layout()
+                    st.pyplot(fig_cov)
+                    st.caption("La diagonal muestra la varianza de cada componente. Los valores fuera de la diagonal deberían ser cercanos a cero (ortogonalidad).")
+
+                    # Matriz de correlación de los componentes principales
+                    corr_pcs = np.corrcoef(X_proj.T)
+                    corr_df = pd.DataFrame(corr_pcs, index=[f"PC{i+1}" for i in range(X_proj.shape[1])], columns=[f"PC{i+1}" for i in range(X_proj.shape[1])])
+                    st.write("#### Matriz de correlación de los componentes principales:")
+                    st.dataframe(corr_df.style.format("{:.3f}"), use_container_width=True)
+                    fig_corr, ax_corr = plt.subplots(figsize=(5, 4))
+                    sns.heatmap(corr_df, annot=True, fmt=".2f", cmap="coolwarm", ax=ax_corr, annot_kws={"size":8}, vmin=-1, vmax=1)
+                    ax_corr.set_title("Heatmap matriz de correlación (PCs)")
+                    plt.tight_layout()
+                    st.pyplot(fig_corr)
+                    st.caption("La diagonal es 1 (autocorrelación perfecta). Los valores fuera de la diagonal deben ser cercanos a cero, indicando independencia lineal entre componentes.")
+                    st.info("En PCA, la ortogonalidad de los componentes se refleja en matrices casi diagonales. Si ves valores altos fuera de la diagonal, revisa el preprocesamiento de los datos.")
                 # ...existing code...
             # Selección dinámica de componentes para visualización
             st.write("### Visualización de componentes principales seleccionados")
