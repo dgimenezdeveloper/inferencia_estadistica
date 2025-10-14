@@ -401,9 +401,11 @@ st.markdown(f"""
 
 st.title("Inferencia Estadística y Reconocimiento de Patrones")
 
+
+# === Selector principal con opción de inicio ===
 analisis = st.sidebar.selectbox(
     "Selecciona el tipo de análisis",
-    ["Discriminante (LDA/QDA)", "Bayes Ingenuo", "Reducción de dimensiones (PCA)"]
+    ["Inicio", "Discriminante (LDA/QDA)", "Bayes Ingenuo", "Reducción de dimensiones (PCA)"]
 )
 
 carpeta_datos = os.path.join(os.path.dirname(__file__), '..', 'datos')
@@ -416,7 +418,88 @@ df, _msg_carga = cargar_dataset(archivo_subido, opcion_archivo, carpeta_datos)
 if _msg_carga:
     st.success(_msg_carga)
 
-if df is not None:
+
+if analisis == "Inicio":
+    st.title("Inicio: Fundamentos para un Análisis Estadístico y de Patrones Correcto")
+    st.markdown("""
+    ## ¿Cómo abordar un problema de análisis estadístico y clasificación?
+    
+    El proceso de análisis no es solo aplicar algoritmos, sino **razonar** y **justificar** cada decisión. Aquí tienes una guía conceptual para elegir y aplicar correctamente los métodos:
+    """)
+    st.markdown("""
+    ---
+    ### 1. Entiende el problema y los datos
+    - ¿Cuál es el objetivo? (clasificar, predecir, explorar)
+    - ¿Qué representa cada variable? ¿Qué significa la variable de clase?
+    - ¿Las variables son numéricas, categóricas, ordinales?
+    - ¿Hay valores atípicos, nulos o errores?
+    
+    **Ejemplo:** Si tu objetivo es predecir el tipo de vino según características químicas, asegúrate de entender qué mide cada variable y si tiene sentido biológico/químico.
+    """)
+    st.markdown("""
+    ---
+    ### 2. Analiza la estructura y relaciones entre variables
+    - Observa la **matriz de correlación**: ¿hay variables muy correlacionadas? Esto afecta a Bayes Ingenuo y puede motivar el uso de PCA.
+    - Observa la **matriz de covarianza**: ¿las escalas y varianzas son similares entre clases? Esto es clave para LDA/QDA.
+    - ¿Las clases están balanceadas? Si no, elige métricas adecuadas (f1_macro, balanced accuracy).
+    
+    **Ejemplo:** Si dos variables tienen correlación 0.98, Bayes Ingenuo no es recomendable salvo que uses PCA.
+    """)
+    st.markdown("""
+    ---
+    ### 3. Conoce los supuestos y fundamentos de cada algoritmo
+    - **LDA (Análisis Discriminante Lineal):**
+        - Supone que las clases tienen **covarianzas iguales** y que las variables siguen una distribución normal multivariante.
+        - Es robusto si los datos cumplen estos supuestos y las clases están bien separadas linealmente.
+        - Útil para interpretación y visualización.
+    - **QDA (Análisis Discriminante Cuadrático):**
+        - Permite **covarianzas diferentes** por clase.
+        - Más flexible, pero requiere más datos para estimar bien las matrices.
+        - Puede sobreajustar si hay pocas muestras por clase.
+    - **Bayes Ingenuo:**
+        - Supone **independencia condicional** entre variables dado la clase.
+        - Muy eficiente y rápido, pero sensible a correlaciones fuertes.
+        - Funciona bien con muchas variables si la independencia es razonable.
+    - **PCA (Análisis de Componentes Principales):**
+        - No es un clasificador, sino una técnica para **reducir la dimensionalidad**.
+        - Útil si hay muchas variables o alta correlación/redundancia.
+        - Puede mejorar la estabilidad de los modelos y reducir el sobreajuste.
+    """)
+    st.markdown("""
+    ---
+    ### 4. ¿Cómo decidir qué método usar?
+    - **¿Las variables están muy correlacionadas?**
+        - Sí: Considera PCA antes de clasificar, o elimina variables redundantes.
+        - No: Puedes usar LDA, QDA o Bayes Ingenuo según los otros supuestos.
+    - **¿Las clases tienen covarianzas similares?**
+        - Sí: LDA es apropiado.
+        - No: QDA puede capturar mejor la diferencia.
+    - **¿Las variables son independientes?**
+        - Sí: Bayes Ingenuo es ideal.
+        - No: Prefiere LDA/QDA o usa PCA antes de Bayes.
+    - **¿Tienes muchas variables y pocas muestras?**
+        - Sí: PCA ayuda a evitar sobreajuste.
+    - **¿Qué métrica te importa más?**
+        - Si las clases están desbalanceadas, usa f1_macro o balanced accuracy.
+    
+    **Ejemplo de razonamiento:**
+    > "Tengo 10 variables, 3 de ellas muy correlacionadas. Las clases parecen tener varianzas distintas. Probaré QDA, pero antes aplicaré PCA para reducir la redundancia."
+    """)
+    st.markdown("""
+    ---
+    ### 5. Buenas prácticas y advertencias teóricas
+    - **No apliques algoritmos sin revisar los supuestos.**
+    - **No elimines variables solo por correlación:** verifica el impacto real en las métricas.
+    - **Justifica cada decisión:** ¿por qué elegiste ese modelo, ese preprocesamiento?
+    - **Compara siempre varios modelos:** no te quedes solo con el accuracy.
+    - **No te fíes solo de la varianza explicada en PCA:** valida con métricas de clasificación.
+    - **Si los resultados no tienen sentido, revisa los datos y los supuestos.**
+    
+    **Recuerda:** El análisis correcto es el que puedes justificar teóricamente y que se adapta a la naturaleza de tus datos.
+    """)
+    st.success("¡Listo! Usa el menú de la izquierda para explorar cada método, revisa los supuestos y justifica tus decisiones.")
+
+elif df is not None:
 
     # Detectar columnas categóricas elegibles para target
     max_unique_target = 20
