@@ -49,7 +49,7 @@ def calcular_metricas_clasificacion(y_true, y_pred, y_prob=None, class_names=Non
     metricas['class_names'] = class_names
     return metricas
 
-def mostrar_metricas_clasificacion(metricas, st, titulo="Métricas de Evaluación"):
+def mostrar_metricas_clasificacion(st, metricas, titulo="Métricas de Evaluación"):
     """
     Muestra las métricas de clasificación en Streamlit de forma organizada
     """

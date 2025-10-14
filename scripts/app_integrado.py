@@ -133,6 +133,38 @@ El Análisis de Componentes Principales (PCA) es una técnica de reducción de d
 de máxima varianza en los datos para representarlos en un espacio de menor dimensión.
 """
 
+TEXTO_SVM = """
+### 🧠 Máquinas de Vectores de Soporte (SVM)
+
+Las SVM son algoritmos supervisados para clasificación y regresión. Buscan el hiperplano que maximiza el margen entre clases. Si los datos no son separables linealmente, usan kernels para proyectarlos a espacios de mayor dimensión.
+
+**¿Cuándo usar SVM?**
+- Cuando tienes datos con fronteras complejas o no lineales.
+- Cuando necesitas robustez ante outliers (con C bajo).
+- Cuando el número de variables es alto respecto a las muestras.
+
+**Parámetros clave:**
+- **Kernel:** 'linear', 'rbf', 'poly', 'sigmoid'.
+- **C:** Controla la penalización por errores (regularización).
+- **Gamma:** Afecta la flexibilidad del modelo (solo 'rbf', 'poly', 'sigmoid').
+- **Degree:** Grado del polinomio (solo 'poly').
+
+**Ventajas:**
+- Potente para problemas complejos.
+- Puede manejar datos no lineales.
+- Robusto ante overfitting si se ajusta bien C y kernel.
+
+**Desventajas:**
+- Sensible a la escala de los datos (escalar siempre).
+- Puede ser lento con muchos datos.
+- Difícil de interpretar para kernels no lineales.
+
+**Recomendaciones:**
+- Escala siempre las variables antes de usar SVM.
+- Prueba varios kernels y valores de C/gamma.
+- Usa validación cruzada para elegir hiperparámetros.
+"""
+
 # Inicializar el tema en session_state si no existe
 if 'tema' not in st.session_state:
     st.session_state['tema'] = 'Oscuro'
@@ -529,181 +561,477 @@ if analisis == "Inicio":
     st.success("¡Listo! Usa el menú de la izquierda para explorar cada método, revisa los supuestos y justifica tus decisiones.")
 
 elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
-    st.title("SVM: Máquinas de Vectores de Soporte")
-    st.markdown("""
-    Las SVM son algoritmos supervisados potentes para clasificación y regresión. Buscan el hiperplano que mejor separa las clases, maximizando el margen entre ellas. Permiten fronteras no lineales mediante el uso de kernels.
-    """)
-    st.info("Ajusta los parámetros y entrena el modelo SVM. Se mostrarán métricas, visualizaciones y sugerencias automáticas.")
-
+    st.title("🧠 SVM: Máquinas de Vectores de Soporte")
+    
+    with st.expander("📚 ¿Qué es SVM? Fundamentos teóricos", expanded=False):
+        st.markdown("""
+        ### Conceptos fundamentales de SVM
+        
+        **SVM (Support Vector Machine)** es un algoritmo de aprendizaje supervisado que busca encontrar el **hiperplano óptimo** que separa las clases maximizando el **margen** (distancia entre el hiperplano y los puntos más cercanos de cada clase).
+        
+        **Conceptos clave:**
+        - **Vectores de soporte**: puntos más cercanos al hiperplano de decisión
+        - **Margen**: distancia entre el hiperplano y los vectores de soporte
+        - **Kernel**: función que transforma los datos a un espacio de mayor dimensión
+        - **Hiperparámetro C**: controla el trade-off entre margen y errores de clasificación
+        
+        **¿Cuándo usar SVM?**
+        - Datos con fronteras complejas no lineales
+        - Cuando el número de características es mayor que el de muestras
+        - Cuando necesitas robustez ante outliers
+        - Para problemas de clasificación binaria o multiclase
+        """)
+    
+    st.info("🎯 **Objetivo didáctico**: Entender cómo diferentes kernels y parámetros afectan la clasificación, visualizar fronteras de decisión y comparar rendimiento.")
+    
     # Selección de variables y target
     target_col = st.session_state.get("target_col_global")
     clase_labels = st.session_state.get("clase_labels_global")
     if not target_col or target_col not in df.columns:
-        st.warning("Selecciona una columna de clase en el panel izquierdo.")
+        st.warning("⚠️ Selecciona una columna de clase en el panel izquierdo.")
     else:
-        X = df.drop(columns=[target_col])
+        # Preparación de datos
         y = df[target_col]
-        # Solo variables numéricas para SVM
-        X = X.select_dtypes(include=[np.number])
-        # Parámetros SVM
-        st.subheader("Parámetros del modelo SVM")
-        kernel = st.selectbox("Kernel", ["rbf", "linear", "poly", "sigmoid"], index=0)
-        C = st.slider("C (Regularización)", min_value=0.01, max_value=10.0, value=1.0, step=0.01)
-        gamma = st.selectbox("Gamma", ["scale", "auto"])
-        degree = st.slider("Degree (solo para 'poly')", min_value=2, max_value=6, value=3)
-        st.caption("El kernel determina la forma de la frontera de decisión. C controla la penalización por errores. Gamma afecta la flexibilidad del modelo. Degree solo aplica a kernel 'poly'.")
-
-        if st.button("Entrenar SVM"):
-            with st.spinner("Entrenando modelo SVM..."):
-                from modelos import entrenar_svm, predecir_svm
-                try:
-                    model = entrenar_svm(X, y, kernel=kernel, C=C, gamma=gamma, degree=degree, probability=True)
-                    y_pred, y_prob = predecir_svm(model, X)
-                    # Métricas
-                    st.subheader("Métricas de clasificación (entrenamiento)")
-                    from metricas import calcular_metricas_clasificacion, mostrar_metricas_clasificacion, visualizar_matriz_confusion_mejorada, crear_curvas_roc_interactivas
-                    metricas = calcular_metricas_clasificacion(y, y_pred, labels=np.unique(y))
-                    mostrar_metricas_clasificacion(metricas, clase_labels)
-                    # Matriz de confusión
-                    st.subheader("Matriz de confusión")
-                    visualizar_matriz_confusion_mejorada(y, y_pred, labels=np.unique(y), clase_labels=clase_labels)
-                    # Curva ROC (si binario)
-                    if y_prob is not None and len(np.unique(y)) == 2:
-                        st.subheader("Curva ROC")
-                        crear_curvas_roc_interactivas(y, y_prob, labels=np.unique(y), clase_labels=clase_labels)
-                    # Sugerencias automáticas
-                    st.subheader("Sugerencias y conclusiones")
-                    sugerencias = []
-                    if kernel == "linear":
-                        sugerencias.append("El kernel lineal es adecuado si las clases son separables linealmente. Prueba 'rbf' o 'poly' si no obtienes buen desempeño.")
-                    if C < 0.1:
-                        sugerencias.append("Un valor de C muy bajo puede subajustar el modelo. Si el accuracy es bajo, prueba aumentar C.")
-                    if C > 5:
-                        sugerencias.append("Un valor de C muy alto puede sobreajustar. Si ves overfitting, reduce C.")
-                    if kernel == "poly" and degree > 3:
-                        sugerencias.append("Grados altos en kernel 'poly' pueden sobreajustar. Usa degree=2 o 3 salvo que tengas muchos datos.")
-                    if len(np.unique(y)) > 2 and kernel in ["rbf", "poly"]:
-                        sugerencias.append("Para problemas multiclase, SVM usa el esquema one-vs-rest. Considera ajustar los parámetros para cada clase.")
-                    if not sugerencias:
-                        sugerencias.append("Si el desempeño es bajo, prueba escalar los datos, ajustar kernel, C o gamma, o aplicar PCA.")
-                    for sug in sugerencias:
-                        st.info(sug)
-                    st.success("Conclusión: SVM es robusto para clasificación, pero sensible a la escala y a la selección de parámetros. Experimenta con los hiperparámetros para mejorar resultados.")
-                except Exception as e:
-                    st.error(f"Error al entrenar SVM: {e}")
-# ================== TEORÍA Y GUÍA COMPLETA DE PCA ==================
-TEXTO_SVM = """
-### 🧠 Máquinas de Vectores de Soporte (SVM)
-
-Las SVM son algoritmos supervisados para clasificación y regresión. Buscan el hiperplano que maximiza el margen entre clases. Si los datos no son separables linealmente, usan kernels para proyectarlos a espacios de mayor dimensión.
-
-**¿Cuándo usar SVM?**
-- Cuando tienes datos con fronteras complejas o no lineales.
-- Cuando necesitas robustez ante outliers (con C bajo).
-- Cuando el número de variables es alto respecto a las muestras.
-
-**Parámetros clave:**
-- **Kernel:** 'linear', 'rbf', 'poly', 'sigmoid'.
-- **C:** Controla la penalización por errores (regularización).
-- **Gamma:** Afecta la flexibilidad del modelo (solo 'rbf', 'poly', 'sigmoid').
-- **Degree:** Grado del polinomio (solo 'poly').
-
-**Ventajas:**
-- Potente para problemas complejos.
-- Puede manejar datos no lineales.
-- Robusto ante overfitting si se ajusta bien C y kernel.
-
-**Desventajas:**
-- Sensible a la escala de los datos (escalar siempre).
-- Puede ser lento con muchos datos.
-- Difícil de interpretar para kernels no lineales.
-
-**Recomendaciones:**
-- Escala siempre las variables antes de usar SVM.
-- Prueba varios kernels y valores de C/gamma.
-- Usa validación cruzada para elegir hiperparámetros.
-"""
-
-
-if analisis == "Inicio":
-    st.title("Inicio: Fundamentos para un Análisis Estadístico y de Patrones Correcto")
-    st.markdown("""
-    ## ¿Cómo abordar un problema de análisis estadístico y clasificación?
-    
-    El proceso de análisis no es solo aplicar algoritmos, sino **razonar** y **justificar** cada decisión. Aquí tienes una guía conceptual para elegir y aplicar correctamente los métodos:
-    """)
-    st.markdown("""
-    ---
-    ### 1. Entiende el problema y los datos
-    - ¿Cuál es el objetivo? (clasificar, predecir, explorar)
-    - ¿Qué representa cada variable? ¿Qué significa la variable de clase?
-    - ¿Las variables son numéricas, categóricas, ordinales?
-    - ¿Hay valores atípicos, nulos o errores?
-    
-    **Ejemplo:** Si tu objetivo es predecir el tipo de vino según características químicas, asegúrate de entender qué mide cada variable y si tiene sentido biológico/químico.
-    """)
-    st.markdown("""
-    ---
-    ### 2. Analiza la estructura y relaciones entre variables
-    - Observa la **matriz de correlación**: ¿hay variables muy correlacionadas? Esto afecta a Bayes Ingenuo y puede motivar el uso de PCA.
-    - Observa la **matriz de covarianza**: ¿las escalas y varianzas son similares entre clases? Esto es clave para LDA/QDA.
-    - ¿Las clases están balanceadas? Si no, elige métricas adecuadas (f1_macro, balanced accuracy).
-    
-    **Ejemplo:** Si dos variables tienen correlación 0.98, Bayes Ingenuo no es recomendable salvo que uses PCA.
-    """)
-    st.markdown("""
-    ---
-    ### 3. Conoce los supuestos y fundamentos de cada algoritmo
-    - **LDA (Análisis Discriminante Lineal):**
-        - Supone que las clases tienen **covarianzas iguales** y que las variables siguen una distribución normal multivariante.
-        - Es robusto si los datos cumplen estos supuestos y las clases están bien separadas linealmente.
-        - Útil para interpretación y visualización.
-    - **QDA (Análisis Discriminante Cuadrático):**
-        - Permite **covarianzas diferentes** por clase.
-        - Más flexible, pero requiere más datos para estimar bien las matrices.
-        - Puede sobreajustar si hay pocas muestras por clase.
-    - **Bayes Ingenuo:**
-        - Supone **independencia condicional** entre variables dado la clase.
-        - Muy eficiente y rápido, pero sensible a correlaciones fuertes.
-        - Funciona bien con muchas variables si la independencia es razonable.
-    - **PCA (Análisis de Componentes Principales):**
-        - No es un clasificador, sino una técnica para **reducir la dimensionalidad**.
-        - Útil si hay muchas variables o alta correlación/redundancia.
-        - Puede mejorar la estabilidad de los modelos y reducir el sobreajuste.
-    """)
-    st.markdown("""
-    ---
-    ### 4. ¿Cómo decidir qué método usar?
-    - **¿Las variables están muy correlacionadas?**
-        - Sí: Considera PCA antes de clasificar, o elimina variables redundantes.
-        - No: Puedes usar LDA, QDA o Bayes Ingenuo según los otros supuestos.
-    - **¿Las clases tienen covarianzas similares?**
-        - Sí: LDA es apropiado.
-        - No: QDA puede capturar mejor la diferencia.
-    - **¿Las variables son independientes?**
-        - Sí: Bayes Ingenuo es ideal.
-        - No: Prefiere LDA/QDA o usa PCA antes de Bayes.
-    - **¿Tienes muchas variables y pocas muestras?**
-        - Sí: PCA ayuda a evitar sobreajuste.
-    - **¿Qué métrica te importa más?**
-        - Si las clases están desbalanceadas, usa f1_macro o balanced accuracy.
-    
-    **Ejemplo de razonamiento:**
-    > "Tengo 10 variables, 3 de ellas muy correlacionadas. Las clases parecen tener varianzas distintas. Probaré QDA, pero antes aplicaré PCA para reducir la redundancia."
-    """)
-    st.markdown("""
-    ---
-    ### 5. Buenas prácticas y advertencias teóricas
-    - **No apliques algoritmos sin revisar los supuestos.**
-    - **No elimines variables solo por correlación:** verifica el impacto real en las métricas.
-    - **Justifica cada decisión:** ¿por qué elegiste ese modelo, ese preprocesamiento?
-    - **Compara siempre varios modelos:** no te quedes solo con el accuracy.
-    - **No te fíes solo de la varianza explicada en PCA:** valida con métricas de clasificación.
-    - **Si los resultados no tienen sentido, revisa los datos y los supuestos.**
-    
-    **Recuerda:** El análisis correcto es el que puedes justificar teóricamente y que se adapta a la naturaleza de tus datos.
-    """)
-    st.success("¡Listo! Usa el menú de la izquierda para explorar cada método, revisa los supuestos y justifica tus decisiones.")
+        feature_cols = [c for c in df.columns if c != target_col and pd.api.types.is_numeric_dtype(df[c])]
+        
+        if len(feature_cols) < 2:
+            st.error("❌ SVM requiere al menos 2 variables numéricas. Agrega más columnas numéricas a tu dataset.")
+        else:
+            st.success(f"✅ Dataset cargado: {len(df)} muestras, {len(feature_cols)} variables numéricas, {len(y.unique())} clases")
+            
+            # --- NUEVO: Límite de muestras para SVM ---
+            MAX_SVM_SAMPLES = 5000
+            usar_muestreo = False
+            if len(df) > MAX_SVM_SAMPLES:
+                st.warning(f"⚠️ El dataset tiene {len(df)} muestras. El entrenamiento de SVM puede ser extremadamente lento o colgarse con más de {MAX_SVM_SAMPLES} muestras. Se recomienda entrenar con una muestra aleatoria.")
+                usar_muestreo = st.checkbox(f"Entrenar SVM solo con una muestra aleatoria de {MAX_SVM_SAMPLES} filas", value=True, key="svm_sample_checkbox")
+            if usar_muestreo:
+                df_svm = df.sample(n=MAX_SVM_SAMPLES, random_state=42)
+                y = df_svm[target_col]
+            else:
+                df_svm = df
+            
+            # Selección de variables para el análisis
+            st.subheader("🔍 1. Selección de variables")
+            cols1, cols2 = st.columns(2)
+            
+            with cols1:
+                st.write("**Variables disponibles:**")
+                selected_features = st.multiselect(
+                    "Selecciona las variables para el modelo",
+                    feature_cols,
+                    default=feature_cols[:min(4, len(feature_cols))],
+                    key="svm_features"
+                )
+            
+            with cols2:
+                st.write("**Información del dataset:**")
+                st.metric("Total de muestras", len(df_svm))
+                st.metric("Variables numéricas", len(feature_cols))
+                st.metric("Clases únicas", len(y.unique()))
+                
+                # Balance de clases
+                class_counts = y.value_counts()
+                balance_ratio = class_counts.min() / class_counts.max()
+                if balance_ratio < 0.3:
+                    st.warning(f"⚠️ Clases desbalanceadas (ratio: {balance_ratio:.2f})")
+                else:
+                    st.success(f"✅ Clases balanceadas (ratio: {balance_ratio:.2f})")
+            
+            if len(selected_features) >= 2:
+                X = df_svm[selected_features]
+                
+                # Verificar y manejar nulos
+                if X.isnull().sum().sum() > 0:
+                    st.warning("⚠️ Se encontraron valores nulos. Imputando con la media...")
+                    from preprocesamiento import manejar_nulos
+                    X = manejar_nulos(X, metodo='media')
+                
+                # Escalado de datos
+                st.subheader("⚙️ 2. Preprocesamiento")
+                escalar_datos_svm = st.checkbox("Escalar datos (recomendado para SVM)", value=True, key="escalar_svm")
+                
+                if escalar_datos_svm:
+                    from sklearn.preprocessing import StandardScaler
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X)
+                    X_model = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
+                    st.info("✅ Datos escalados (media=0, std=1)")
+                else:
+                    X_model = X.copy()
+                    st.warning("⚠️ Datos sin escalar. SVM es sensible a la escala.")
+                
+                # Configuración del modelo
+                st.subheader("🛠️ 3. Configuración del modelo SVM")
+                
+                # Pestañas para configuración básica y avanzada
+                tab_basic, tab_advanced, tab_comparison = st.tabs(["🎯 Configuración Básica", "⚙️ Configuración Avanzada", "📊 Comparación de Kernels"])
+                
+                with tab_basic:
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        kernel = st.selectbox("Kernel", ["rbf", "linear", "poly", "sigmoid"], index=0, key="kernel_basic")
+                        st.caption("**RBF**: Fronteras curvas, versátil\n**Linear**: Fronteras rectas, rápido\n**Poly**: Fronteras polinómicas\n**Sigmoid**: Similar a redes neuronales")
+                    
+                    with col2:
+                        C = st.slider("C (Regularización)", min_value=0.001, max_value=100.0, value=1.0, step=0.001, format="%.3f", key="C_basic")
+                        st.caption("**C bajo**: Margen amplio, puede subajustar\n**C alto**: Margen estrecho, puede sobreajustar")
+                    
+                    with col3:
+                        if kernel in ['rbf', 'poly', 'sigmoid']:
+                            gamma = st.selectbox("Gamma", ["scale", "auto", "manual"], index=0, key="gamma_basic")
+                            if gamma == "manual":
+                                gamma_value = st.slider("Valor de Gamma", min_value=0.001, max_value=10.0, value=1.0, step=0.001, key="gamma_manual")
+                                gamma = gamma_value
+                        else:
+                            gamma = 'scale'
+                            st.info("Gamma no aplica para kernel linear")
+                        
+                        if kernel == 'poly':
+                            degree = st.slider("Degree (Grado)", min_value=2, max_value=6, value=3, key="degree_basic")
+                        else:
+                            degree = 3
+                
+                with tab_advanced:
+                    st.markdown("### 🔬 Optimización automática de hiperparámetros")
+                    
+                    enable_grid_search = st.checkbox("Activar Grid Search (búsqueda automática)", value=False, key="enable_grid_search")
+                    
+                    if enable_grid_search:
+                        st.info("🤖 Grid Search probará diferentes combinaciones de parámetros y elegirá la mejor según validación cruzada.")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            kernels_grid = st.multiselect("Kernels a probar", ["linear", "rbf", "poly", "sigmoid"], default=["linear", "rbf"], key="kernels_grid")
+                            cv_folds = st.slider("Folds de validación cruzada", min_value=3, max_value=10, value=5, key="cv_folds")
+                        
+                        with col2:
+                            C_values = st.multiselect("Valores de C", [0.001, 0.01, 0.1, 1, 10, 100], default=[0.1, 1, 10], key="C_values")
+                            scoring_metric = st.selectbox("Métrica de optimización", ["accuracy", "f1_macro", "f1_weighted"], key="scoring_metric")
+                
+                with tab_comparison:
+                    st.markdown("### 📈 Comparación automática de todos los kernels")
+                    st.info("Esta opción entrena modelos con los 4 kernels principales y compara su rendimiento.")
+                    
+                    enable_comparison = st.checkbox("Activar comparación de kernels", value=False, key="enable_comparison")
+                    if enable_comparison:
+                        comparison_metric = st.selectbox("Métrica para comparación", ["accuracy", "f1_macro", "f1_weighted"], key="comparison_metric")
+                
+                # Botón de entrenamiento
+                st.markdown("---")
+                if st.button("🚀 Entrenar modelo SVM", key="train_svm", type="primary"):
+                    with st.spinner("🔄 Entrenando modelo SVM..."):
+                        import time
+                        from sklearn.model_selection import GridSearchCV, cross_val_score
+                        from sklearn.metrics import classification_report
+                        import plotly.graph_objects as go
+                        from plotly.subplots import make_subplots
+                        
+                        try:
+                            if enable_grid_search:
+                                # Grid Search
+                                st.subheader("🤖 Resultados de Grid Search")
+                                
+                                param_grid = {
+                                    'kernel': kernels_grid,
+                                    'C': C_values
+                                }
+                                
+                                # Agregar parámetros específicos por kernel
+                                if 'rbf' in kernels_grid or 'poly' in kernels_grid or 'sigmoid' in kernels_grid:
+                                    param_grid['gamma'] = ['scale', 'auto']
+                                if 'poly' in kernels_grid:
+                                    param_grid['degree'] = [2, 3, 4]
+                                
+                                from sklearn.svm import SVC
+                                svm_base = SVC(probability=True, random_state=42)
+                                
+                                grid_search = GridSearchCV(svm_base, param_grid, cv=cv_folds, scoring=scoring_metric, n_jobs=-1)
+                                
+                                start_time = time.time()
+                                grid_search.fit(X_model, y)
+                                training_time = time.time() - start_time
+                                
+                                st.success(f"✅ Grid Search completado en {training_time:.2f} segundos")
+                                
+                                # Mejores parámetros
+                                st.write("**🏆 Mejores parámetros encontrados:**")
+                                for param, value in grid_search.best_params_.items():
+                                    st.write(f"- **{param}**: {value}")
+                                
+                                st.metric("Mejor score (CV)", f"{grid_search.best_score_:.4f}")
+                                
+                                # Usar el mejor modelo
+                                best_model = grid_search.best_estimator_
+                                model_params = grid_search.best_params_
+                                
+                            elif enable_comparison:
+                                # Comparación de kernels
+                                st.subheader("📊 Comparación de kernels")
+                                
+                                kernels_to_compare = ["linear", "rbf", "poly", "sigmoid"]
+                                comparison_results = []
+                                
+                                for kern in kernels_to_compare:
+                                    from modelos import entrenar_svm
+                                    temp_model = entrenar_svm(X_model, y, kernel=kern, C=1.0, probability=True)
+                                    scores = cross_val_score(temp_model, X_model, y, cv=5, scoring=comparison_metric)
+                                    
+                                    comparison_results.append({
+                                        'Kernel': kern,
+                                        'Score Promedio': scores.mean(),
+                                        'Desviación Estándar': scores.std(),
+                                        'Score Mínimo': scores.min(),
+                                        'Score Máximo': scores.max()
+                                    })
+                                
+                                comparison_df = pd.DataFrame(comparison_results)
+                                comparison_df = comparison_df.sort_values('Score Promedio', ascending=False)
+                                
+                                st.dataframe(comparison_df, use_container_width=True)
+                                
+                                # Gráfico de comparación
+                                fig_comparison = go.Figure()
+                                fig_comparison.add_trace(go.Bar(
+                                    x=comparison_df['Kernel'],
+                                    y=comparison_df['Score Promedio'],
+                                    error_y=dict(type='data', array=comparison_df['Desviación Estándar']),
+                                    marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
+                                ))
+                                fig_comparison.update_layout(
+                                    title=f"Comparación de Kernels ({comparison_metric})",
+                                    xaxis_title="Kernel",
+                                    yaxis_title=f"{comparison_metric.capitalize()}",
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_comparison, use_container_width=True)
+                                
+                                # Usar el mejor kernel
+                                best_kernel_row = comparison_df.iloc[0]
+                                st.success(f"🏆 Mejor kernel: **{best_kernel_row['Kernel']}** (score: {best_kernel_row['Score Promedio']:.4f})")
+                                
+                                from modelos import entrenar_svm
+                                best_model = entrenar_svm(X_model, y, kernel=best_kernel_row['Kernel'], C=1.0, probability=True)
+                                model_params = {'kernel': best_kernel_row['Kernel'], 'C': 1.0}
+                                
+                            else:
+                                # Entrenamiento básico
+                                from modelos import entrenar_svm
+                                start_time = time.time()
+                                best_model = entrenar_svm(X_model, y, kernel=kernel, C=C, gamma=gamma, degree=degree, probability=True)
+                                training_time = time.time() - start_time
+                                model_params = {'kernel': kernel, 'C': C, 'gamma': gamma, 'degree': degree}
+                                
+                                st.success(f"✅ Modelo entrenado en {training_time:.3f} segundos")
+                            
+                            # Predicciones
+                            from modelos import predecir_svm
+                            y_pred, y_prob = predecir_svm(best_model, X_model)
+                            
+                            # Métricas principales
+                            st.subheader("📊 4. Métricas de rendimiento")
+                            
+                            # Métricas en columnas
+                            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+                            from metricas import calcular_metricas_clasificacion, mostrar_metricas_clasificacion
+                            
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                acc = accuracy_score(y, y_pred)
+                                st.metric("Accuracy", f"{acc:.4f}", f"{acc*100:.1f}%")
+                            with col2:
+                                f1 = f1_score(y, y_pred, average='macro')
+                                st.metric("F1-Score (macro)", f"{f1:.4f}")
+                            with col3:
+                                st.metric("Vectores de soporte", len(best_model.support_))
+                                st.caption(f"{len(best_model.support_)/len(X_model)*100:.1f}% del dataset")
+                            with col4:
+                                if not (enable_grid_search or enable_comparison):
+                                    st.metric("Tiempo entrenamiento", f"{training_time:.3f}s")
+                            
+                            # Métricas detalladas
+                            class_names_svm = [clase_labels.get(i, str(i)) for i in np.unique(y)] if clase_labels else [str(i) for i in np.unique(y)]
+                            metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names_svm, st=st)
+                            mostrar_metricas_clasificacion(st, metricas, "Métricas de SVM")
+                            
+                            # Matriz de confusión
+                            st.subheader("🎯 5. Matriz de confusión")
+                            from metricas import visualizar_matriz_confusion_mejorada
+                            visualizar_matriz_confusion_mejorada(metricas['confusion_matrix'], class_names_svm, st, "Matriz de Confusión SVM")
+                            
+                            # Visualización de fronteras de decisión (solo para 2 features)
+                            if len(selected_features) == 2:
+                                st.subheader("🗺️ 6. Visualización de fronteras de decisión")
+                                
+                                # Crear mesh para visualización
+                                h = 0.02  # step size in the mesh
+                                x_min, x_max = X_model.iloc[:, 0].min() - 1, X_model.iloc[:, 0].max() + 1
+                                y_min, y_max = X_model.iloc[:, 1].min() - 1, X_model.iloc[:, 1].max() + 1
+                                xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
+                                
+                                # Predicción en el mesh
+                                mesh_points = np.c_[xx.ravel(), yy.ravel()]
+                                Z = best_model.predict(mesh_points)
+                                Z = Z.reshape(xx.shape)
+                                
+                                # Crear figura con plotly
+                                fig_boundary = go.Figure()
+                                
+                                # Agregar contorno de fronteras
+                                fig_boundary.add_trace(go.Contour(
+                                    x=np.arange(x_min, x_max, h),
+                                    y=np.arange(y_min, y_max, h),
+                                    z=Z,
+                                    showscale=False,
+                                    colorscale='RdYlBu',
+                                    opacity=0.3,
+                                    hoverinfo='skip'
+                                ))
+                                
+                                # Agregar puntos de datos
+                                colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
+                                for i, class_val in enumerate(np.unique(y)):
+                                    mask = y == class_val
+                                    class_name = clase_labels.get(class_val, str(class_val)) if clase_labels else str(class_val)
+                                    
+                                    fig_boundary.add_trace(go.Scatter(
+                                        x=X_model.iloc[mask, 0],
+                                        y=X_model.iloc[mask, 1],
+                                        mode='markers',
+                                        name=class_name,
+                                        marker=dict(
+                                            color=colors[i % len(colors)],
+                                            size=8,
+                                            line=dict(width=1, color='white')
+                                        )
+                                    ))
+                                
+                                # Agregar vectores de soporte
+                                support_vectors = X_model.iloc[best_model.support_]
+                                fig_boundary.add_trace(go.Scatter(
+                                    x=support_vectors.iloc[:, 0],
+                                    y=support_vectors.iloc[:, 1],
+                                    mode='markers',
+                                    name='Vectores de Soporte',
+                                    marker=dict(
+                                        color='black',
+                                        size=12,
+                                        symbol='circle-open',
+                                        line=dict(width=3)
+                                    )
+                                ))
+                                
+                                fig_boundary.update_layout(
+                                    title=f"Fronteras de Decisión SVM - Kernel: {model_params['kernel']}",
+                                    xaxis_title=selected_features[0],
+                                    yaxis_title=selected_features[1],
+                                    showlegend=True
+                                )
+                                
+                                st.plotly_chart(fig_boundary, use_container_width=True)
+                                
+                                st.info(f"""
+                                **Interpretación de la visualización:**
+                                - Las **regiones coloreadas** muestran las fronteras de decisión del modelo
+                                - Los **puntos** son las muestras de entrenamiento coloreadas por clase real
+                                - Los **círculos negros** son los vectores de soporte (puntos críticos para la frontera)
+                                - El kernel **{model_params['kernel']}** determina la forma de las fronteras
+                                """)
+                            
+                            else:
+                                st.info("🗺️ Para visualizar fronteras de decisión, selecciona exactamente 2 variables.")
+                            
+                            # Curvas ROC para problemas binarios
+                            if len(np.unique(y)) == 2 and y_prob is not None:
+                                st.subheader("📈 7. Curva ROC")
+                                from metricas import crear_curvas_roc_interactivas
+                                crear_curvas_roc_interactivas(y, y_prob, labels=np.unique(y), clase_labels=clase_labels)
+                            
+                            # Análisis e interpretación automática
+                            st.subheader("🧠 8. Interpretación y recomendaciones")
+                            
+                            # Análisis de rendimiento
+                            if acc >= 0.9:
+                                st.success("🎉 **Excelente rendimiento** (Accuracy ≥ 90%)")
+                            elif acc >= 0.8:
+                                st.info("✅ **Buen rendimiento** (Accuracy ≥ 80%)")
+                            elif acc >= 0.7:
+                                st.warning("⚠️ **Rendimiento moderado** (Accuracy ≥ 70%)")
+                            else:
+                                st.error("❌ **Rendimiento bajo** (Accuracy < 70%)")
+                            
+                            # Análisis de vectores de soporte
+                            support_ratio = len(best_model.support_) / len(X_model)
+                            if support_ratio > 0.5:
+                                st.warning(f"⚠️ **Muchos vectores de soporte** ({support_ratio*100:.1f}% de los datos). El modelo puede estar sobreajustando. Considera reducir C o cambiar de kernel.")
+                            elif support_ratio < 0.1:
+                                st.info(f"✅ **Pocos vectores de soporte** ({support_ratio*100:.1f}% de los datos). El modelo es eficiente y probablemente generaliza bien.")
+                            else:
+                                st.success(f"✅ **Cantidad apropiada de vectores de soporte** ({support_ratio*100:.1f}% de los datos).")
+                            
+                            # Recomendaciones específicas por kernel
+                            kernel_used = model_params['kernel']
+                            if kernel_used == 'linear':
+                                st.info("📝 **Kernel Linear**: Ideal para datos linealmente separables. Si el rendimiento es bajo, prueba kernels no lineales.")
+                            elif kernel_used == 'rbf':
+                                st.info("📝 **Kernel RBF**: Versátil para datos no lineales. Ajusta C y gamma para optimizar.")
+                            elif kernel_used == 'poly':
+                                st.info("📝 **Kernel Polinómico**: Bueno para relaciones polinómicas. Cuidado con grados altos (overfitting).")
+                            elif kernel_used == 'sigmoid':
+                                st.info("📝 **Kernel Sigmoid**: Similar a redes neuronales. Puede ser inestable con algunos datos.")
+                            
+                            # Sugerencias de mejora
+                            st.markdown("### 💡 Sugerencias para mejorar el modelo:")
+                            sugerencias = []
+                            
+                            if acc < 0.8:
+                                sugerencias.append("🔧 **Ajustar hiperparámetros**: Prueba Grid Search para encontrar la mejor combinación")
+                                sugerencias.append("🔄 **Cambiar kernel**: Experimenta con diferentes kernels")
+                                if not escalar_datos_svm:
+                                    sugerencias.append("📏 **Escalar datos**: SVM es muy sensible a la escala de las variables")
+                            
+                            if len(selected_features) > 10:
+                                sugerencias.append("📉 **Reducir dimensionalidad**: Considera usar PCA o selección de características")
+                            
+                            if balance_ratio < 0.3:
+                                sugerencias.append("⚖️ **Balancear clases**: Usa class_weight='balanced' o técnicas de muestreo")
+                            
+                            if support_ratio > 0.4:
+                                sugerencias.append("🎛️ **Reducir C**: Un C más bajo puede reducir overfitting")
+                            
+                            if not sugerencias:
+                                sugerencias.append("🎉 **¡Buen trabajo!** El modelo parece estar funcionando bien")
+                            
+                            for sug in sugerencias:
+                                st.write(f"- {sug}")
+                            
+                            # Información técnica adicional
+                            with st.expander("🔬 Información técnica detallada"):
+                                st.write(f"**Parámetros del modelo:**")
+                                for param, value in model_params.items():
+                                    st.write(f"- {param}: {value}")
+                                
+                                st.write(f"**Estadísticas del modelo:**")
+                                st.write(f"- Número de características: {X_model.shape[1]}")
+                                st.write(f"- Número de muestras: {X_model.shape[0]}")
+                                st.write(f"- Número de clases: {len(np.unique(y))}")
+                                st.write(f"- Vectores de soporte por clase: {dict(zip(np.unique(y), np.bincount(best_model.support_[best_model.dual_coef_[0] != 0])))}")
+                                
+                                if hasattr(best_model, 'dual_coef_'):
+                                    st.write(f"- Coeficientes duales: {best_model.dual_coef_.shape}")
+                                if hasattr(best_model, 'intercept_'):
+                                    st.write(f"- Intercepto: {best_model.intercept_}")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Error al entrenar el modelo: {str(e)}")
+                            st.write("Posibles soluciones:")
+                            st.write("- Verifica que tengas suficientes datos")
+                            st.write("- Asegúrate de que las clases estén balanceadas")
+                            st.write("- Prueba escalando los datos")
+                            st.write("- Reduce el número de características")
+            else:
+                st.warning("⚠️ Selecciona al menos 2 variables para entrenar el modelo SVM.")
 
 elif analisis == "Exploración de datos" and df is not None:
     st.title("Exploración de datos: Análisis exploratorio antes de modelar")
@@ -1243,7 +1571,7 @@ Esto te permite ser más exigente: solo aceptar predicciones cuando el modelo es
                     class_labels_global = st.session_state.get("clase_labels_global", {})
                     class_names = [class_labels_global.get(c, str(c)) for c in model.classes_]
                     metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names, st=st)
-                    mostrar_metricas_clasificacion(metricas, st, "Métricas de Bayes Ingenuo")
+                    mostrar_metricas_clasificacion(st, metricas, "Métricas de Bayes Ingenuo")
                     with st.expander("Ver matriz de confusión", expanded=True):
                         st.write("### 🎯 Matriz de Confusión Detallada")
                         st.caption("""
@@ -1586,7 +1914,7 @@ La matriz de covarianza refleja la varianza de cada variable (diagonal) y la cov
                 metricas = calcular_metricas_clasificacion(y, y_pred, y_prob, class_names, st=st)
                 
                 # Mostrar métricas principales
-                mostrar_metricas_clasificacion(metricas, st, f"Métricas de {algoritmo}")
+                mostrar_metricas_clasificacion(st, metricas, f"Métricas de {algoritmo}")
                 
                 # Validación cruzada
                 st.write("### 🔄 Validación Cruzada")
