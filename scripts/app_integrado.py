@@ -635,18 +635,36 @@ elif analisis == "Exploración de datos" and df is not None:
     """)
     if len(num_cols_eda) >= 2:
         cov = df[num_cols_eda].cov()
+        # Umbral para covarianza alta (puedes ajustar este valor)
+        umbral_cov = 100
+        # Crear máscara para valores altos fuera de la diagonal
+        mask_high = (cov.abs() > umbral_cov) & (~np.eye(len(cov), dtype=bool))
+        # Crear heatmap con overlay para valores altos
         fig_cov, ax_cov = plt.subplots(figsize=(min(0.7*len(num_cols_eda)+2, 10), min(0.7*len(num_cols_eda)+2, 10)))
         sns.heatmap(cov, annot=True, fmt=".2f", cmap="YlGnBu", ax=ax_cov, annot_kws={"size":9})
+        # Resaltar celdas con covarianza alta
+        for i in range(cov.shape[0]):
+            for j in range(cov.shape[1]):
+                if mask_high.iloc[i, j]:
+                    ax_cov.add_patch(plt.Rectangle((j, i), 1, 1, fill=False, edgecolor='red', lw=3))
         ax_cov.set_title("Matriz de covarianza (todas las variables numéricas)")
         plt.tight_layout()
         st.pyplot(fig_cov)
-        # Advertencia automática
+        # Advertencia automática y pares problemáticos
         max_cov = cov.where(~cov.isna()).abs().values[np.triu_indices_from(cov, k=1)].max() if cov.shape[0] > 1 else 0
-        if max_cov > 100:
-            st.warning("Se detectan covarianzas muy altas entre algunas variables. Considera escalar los datos o aplicar PCA.")
+        pares_altos = []
+        for i in range(cov.shape[0]):
+            for j in range(i+1, cov.shape[1]):
+                if mask_high.iloc[i, j]:
+                    pares_altos.append((cov.index[i], cov.columns[j], cov.iloc[i, j]))
+        if pares_altos:
+            st.warning(f"Se detectan covarianzas muy altas (> {umbral_cov}) entre algunas variables. Considera escalar los datos o aplicar PCA.")
+            st.markdown(f"<span style='color:#e74c3c'><b>Pares de variables con covarianza alta:</b></span>", unsafe_allow_html=True)
+            for v1, v2, val in pares_altos:
+                st.markdown(f"- <b>{v1}</b> y <b>{v2}</b>: cov = <b>{val:.2f}</b>", unsafe_allow_html=True)
         else:
             st.success("No se detectaron covarianzas excesivamente altas.")
-        st.caption("Covarianzas altas pueden indicar redundancia o escalas muy diferentes. LDA asume covarianzas similares entre clases.")
+        st.caption(f"Las celdas resaltadas en rojo indican pares de variables con covarianza (en valor absoluto) mayor a {umbral_cov}. Covarianzas altas pueden indicar redundancia o escalas muy diferentes. LDA asume covarianzas similares entre clases.")
 
 
     st.header("5. Distribución de clases (si aplica)")
