@@ -531,20 +531,22 @@ if analisis == "Inicio":
     ### 4. ¿Cómo decidir qué método usar?
     - **¿Las variables están muy correlacionadas?**
         - Sí: Considera PCA antes de clasificar, o elimina variables redundantes.
-        - No: Puedes usar LDA, QDA o Bayes Ingenuo según los otros supuestos.
+        - No: Puedes usar LDA, QDA, SVM o Bayes Ingenuo según los otros supuestos.
     - **¿Las clases tienen covarianzas similares?**
         - Sí: LDA es apropiado.
-        - No: QDA puede capturar mejor la diferencia.
+        - No: QDA o SVM pueden capturar mejor la diferencia.
     - **¿Las variables son independientes?**
         - Sí: Bayes Ingenuo es ideal.
-        - No: Prefiere LDA/QDA o usa PCA antes de Bayes.
+        - No: Prefiere LDA/QDA/SVM o usa PCA antes de Bayes.
     - **¿Tienes muchas variables y pocas muestras?**
-        - Sí: PCA ayuda a evitar sobreajuste.
+        - Sí: PCA ayuda a evitar sobreajuste. SVM puede funcionar bien con muchas variables, pero es sensible a la escala.
     - **¿Qué métrica te importa más?**
         - Si las clases están desbalanceadas, usa f1_macro o balanced accuracy.
-    
+    - **¿Dataset muy grande (>10k muestras)?**
+        - SVM puede ser lento. Considera muestreo estratificado o algoritmos alternativos.
+
     **Ejemplo de razonamiento:**
-    > "Tengo 10 variables, 3 de ellas muy correlacionadas. Las clases parecen tener varianzas distintas. Probaré QDA, pero antes aplicaré PCA para reducir la redundancia."
+    > "Tengo 10 variables, 3 de ellas muy correlacionadas. Las clases parecen tener varianzas distintas. Probaré QDA y SVM, pero antes aplicaré PCA para reducir la redundancia."
     """)
     st.markdown("""
     ---
@@ -555,6 +557,10 @@ if analisis == "Inicio":
     - **Compara siempre varios modelos:** no te quedes solo con el accuracy.
     - **No te fíes solo de la varianza explicada en PCA:** valida con métricas de clasificación.
     - **Si los resultados no tienen sentido, revisa los datos y los supuestos.**
+    - **SVM es sensible a la escala:** Escala siempre las variables numéricas antes de entrenar SVM.
+    - **SVM puede ser lento con muchos datos:** Usa muestreo estratificado o selecciona un subconjunto representativo si tienes más de 10,000 muestras.
+    - **Para visualizar fronteras de decisión en SVM:** Elige las dos variables más relevantes (puedes usar la sugerencia automática en la app).
+    - **SVM funciona bien con variables no linealmente separables usando kernels no lineales (RBF, poly).**
     
     **Recuerda:** El análisis correcto es el que puedes justificar teóricamente y que se adapta a la naturaleza de tus datos.
     """)
@@ -1425,6 +1431,17 @@ elif analisis == "Exploración de datos" and df is not None:
     **¿Por qué es importante?**
     - Correlaciones altas indican redundancia y pueden afectar a Bayes Ingenuo y motivar el uso de PCA.
     - LDA/QDA funcionan mejor con baja correlación entre variables.
+    - **SVM** puede manejar variables correlacionadas, pero la interpretación de las fronteras de decisión es más clara si las variables no son redundantes.
+    - Si quieres visualizar fronteras de decisión de SVM, elige dos variables poco correlacionadas y relevantes para la clase.
+    """)
+    st.markdown("""
+    ---
+    ### 4. Consejos prácticos para SVM en la exploración de datos
+    - **Escala las variables numéricas** antes de entrenar SVM (media=0, std=1).
+    - Si tienes muchas variables, usa la sugerencia automática para elegir las dos más relevantes para visualizar fronteras.
+    - Si el dataset es muy grande, considera muestrear para pruebas rápidas.
+    - SVM puede detectar patrones complejos, pero la visualización solo es posible con dos variables.
+    - Si las clases están muy desbalanceadas, usa métricas como f1_macro o balanced accuracy.
     """)
     if len(num_cols_eda) >= 2:
         import seaborn as sns
