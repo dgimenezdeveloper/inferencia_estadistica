@@ -768,6 +768,32 @@ Esto te permite ser más exigente: solo aceptar predicciones cuando el modelo es
                             st.write("### Curvas ROC (si hay probabilidades disponibles)")
                             fig_roc = crear_curvas_roc_interactivas(y, y_prob, class_names, go, px)
                             safe_plotly_chart(fig_roc, width='stretch')
+                            # Explicación didáctica sobre curva ROC y AUC
+                            st.info("""
+    **¿Qué es la curva ROC?**
+
+    - Es un gráfico que muestra la capacidad del modelo para distinguir entre clases.
+    - El eje X es la tasa de falsos positivos (FPR) y el eje Y la tasa de verdaderos positivos (TPR).
+    - Cada punto representa un posible umbral de decisión para clasificar.
+
+    **¿Para qué sirve?**
+    - Permite ver cómo cambia el rendimiento del modelo al variar el umbral de probabilidad.
+    - Si la curva está cerca del vértice superior izquierdo, el modelo es muy bueno.
+    - Si la curva está cerca de la diagonal, el modelo no distingue bien (es casi aleatorio).
+
+    **¿Qué es el AUC?**
+    - Es el área bajo la curva ROC (AUC = Area Under Curve).
+    - Va de 0 a 1. Un AUC de 1 es perfecto, 0.5 es como tirar una moneda.
+    - Cuanto más alto el AUC, mejor el modelo para separar las clases.
+
+    **¿Cómo lo uso?**
+    - Compara modelos: el que tenga mayor AUC es mejor distinguiendo entre clases.
+    - Si ves AUC cercanos a 1, tu modelo es muy bueno. Si ves valores bajos, hay que mejorar el modelo o los datos.
+
+    **Ejemplo visual:**
+    - Una curva que sube rápido hacia arriba y luego a la derecha indica un modelo excelente.
+    - Una curva cerca de la diagonal (línea punteada) indica un modelo poco útil.
+    """)
                     with st.expander("📋 Reporte de Clasificación Completo", expanded=True):
                         st.caption("""
                         **¿Qué es esto?**
@@ -866,6 +892,41 @@ Esto te permite ser más exigente: solo aceptar predicciones cuando el modelo es
             from preprocesamiento import mostrar_ejemplos_por_clase
             clase_labels_global = st.session_state.get("clase_labels_global", {})
             mostrar_ejemplos_por_clase(df, target_col, clase_labels_global, st, n=3)
+
+            # === MATRIZ DE CORRELACIÓN Y COVARIANZA DE FEATURES ===
+            if feature_cols and len(feature_cols) >= 2:
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+                st.markdown("---")
+                st.write("### 🔗 Matriz de correlación entre variables seleccionadas")
+                st.caption("LDA y QDA asumen ciertas propiedades sobre la relación entre variables. Si ves correlaciones fuertes (valores cercanos a 1 o -1 fuera de la diagonal), puede ser útil aplicar PCA o eliminar variables redundantes para mejorar la discriminación.")
+                corr_lda = df[feature_cols].corr()
+                fig_corr, ax_corr = plt.subplots(figsize=(min(0.7*len(feature_cols)+2, 10), min(0.7*len(feature_cols)+2, 10)))
+                sns.heatmap(corr_lda, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=ax_corr, annot_kws={"size":9})
+                ax_corr.set_title("Matriz de correlación (features seleccionadas)")
+                plt.tight_layout()
+                st.pyplot(fig_corr)
+                st.info("""
+**¿Qué muestra esta matriz?**
+La matriz de correlación indica el grado de relación lineal entre cada par de variables. Valores cercanos a 1 o -1 indican alta correlación positiva o negativa, respectivamente. LDA y QDA funcionan mejor si las variables no están fuertemente correlacionadas.
+""")
+                st.markdown("---")
+                st.write("### 📏 Matriz de covarianza entre variables seleccionadas")
+                st.caption("La matriz de covarianza muestra cómo varían conjuntamente las variables y la escala de sus varianzas. Es útil para entender la dispersión y redundancia de la información antes de aplicar PCA.")
+                cov_lda = df[feature_cols].cov()
+                fig_cov, ax_cov = plt.subplots(figsize=(min(0.7*len(feature_cols)+2, 10), min(0.7*len(feature_cols)+2, 10)))
+                sns.heatmap(cov_lda, annot=True, fmt=".2f", cmap="YlGnBu", ax=ax_cov, annot_kws={"size":9})
+                ax_cov.set_title("Matriz de covarianza (features seleccionadas)")
+                plt.tight_layout()
+                st.pyplot(fig_cov)
+                st.info("""
+**¿Qué muestra esta matriz?**
+La matriz de covarianza refleja la varianza de cada variable (diagonal) y la covarianza entre pares de variables (fuera de la diagonal). Covarianzas altas (positivas o negativas) pueden indicar redundancia. PCA utiliza esta matriz para encontrar combinaciones de variables que expliquen mejor la variabilidad de los datos.
+""")
+                st.markdown("---")
+            elif feature_cols:
+                st.info("Selecciona al menos dos variables numéricas para ver las matrices de correlación y covarianza.")
+
             # Opción de preprocesamiento PCA
             usar_pca = st.checkbox("Aplicar reducción de dimensiones (PCA) como preprocesamiento", value=False, key="usar_pca_ldaqda")
             if usar_pca and feature_cols:
