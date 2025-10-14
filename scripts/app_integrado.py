@@ -726,23 +726,13 @@ elif analisis == "Exploración de datos" and df is not None:
 
 elif df is not None:
 
-    # Detectar columnas categóricas elegibles para target
-    max_unique_target = 20
-    num_cols, cat_cols = seleccionar_columnas(df, max_unique_target=max_unique_target)
-    # Asignar nombres descriptivos a las clases antes de la vista previa
-    if cat_cols:
-        st.write("### Asignación de nombres descriptivos a las clases")
-        target_col = st.selectbox("Selecciona la columna de clase (target):", cat_cols, index=max(0, len(cat_cols)-1), key="target_global")
-        clase_unicos = sorted(df[target_col].unique())
+    # Usar nombres descriptivos de las clases definidos en el sidebar
+    target_col = st.session_state.get("target_col_global")
+    clase_labels_global = st.session_state.get("clase_labels_global", {})
+    if target_col and target_col in df.columns:
         conteo_clase = df[target_col].value_counts().sort_index()
         st.write("#### Valores únicos de la clase:")
-        # Inputs para nombres descriptivos
-        clase_labels_global = st.session_state.get("clase_labels_global", {})
-        for v in clase_unicos:
-            label = st.text_input(f"Nombre descriptivo para la clase '{v}'", value=clase_labels_global.get(v, str(v)), key=f"label_global_{v}")
-            clase_labels_global[v] = label if label.strip() else str(v)
-        st.session_state["clase_labels_global"] = clase_labels_global
-        st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
+        st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global.get(v, str(v)) for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
     st.write("### Vista previa del dataset")
     st.info("""
     **¿Qué es esto?**
@@ -764,45 +754,25 @@ elif df is not None:
         with st.expander("¿Qué es Bayes Ingenuo? (Explicación teórica, práctica y predicción por clase)", expanded=True):
             st.markdown(TEXTO_BAYES)
         # Selección de variables igual que en LDA/QDA
-        max_unique_target = 20
+        # Usar nombres descriptivos y columna de clase definidos globalmente
         columnas = df.columns.tolist()
         num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
-        cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or isinstance(df[c].dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
-        st.caption("""
-        **¿Qué es la columna de clase (target)?**
-        Es la variable que quieres predecir. Debe ser categórica (por ejemplo: 'especie', 'tipo de vino', 'aprobado/suspendido').
-        El modelo aprenderá a predecir esta columna usando las demás variables.
-        """)
-        if not cat_cols:
-            st.error("No hay columnas válidas para usar como variable de clase (target). Elige un dataset con una columna categórica o entera con pocos valores únicos.")
+        target_col = st.session_state.get("target_col_global")
+        clase_labels_global = st.session_state.get("clase_labels_global", {})
+        if not target_col or target_col not in df.columns:
+            st.error("No hay columna de clase válida seleccionada. Elige una columna de clase en el panel lateral.")
         else:
-            with st.expander("1️⃣ Selección de columna de clase y significado de valores", expanded=True):
-                target_col = st.selectbox("Selecciona la columna de clase (target):", cat_cols, index=max(0, len(cat_cols)-1), key="target_bayes")
-                # Mostrar valores únicos y conteo
-                st.info("""
-                **¿Qué significa cada valor de la clase?**
-                Aquí puedes ver las clases únicas y su cantidad. Esto te ayuda a saber a qué hace referencia cada clase (por ejemplo, 0 = no potable, 1 = potable).
-                """)
-                clase_unicos = sorted(df[target_col].unique())
-                conteo_clase = df[target_col].value_counts().sort_index()
-                # Obtener mapeo de nombres descriptivos (si ya existe)
-                clase_labels_global = st.session_state.get("clase_labels_global", {})
-                for v in clase_unicos:
-                    label = st.session_state.get(f"label_global_{v}", str(v))
-                    clase_labels_global[v] = label if label.strip() else str(v)
-                st.session_state["clase_labels_global"] = clase_labels_global
-                st.write("#### Valores únicos de la clase:")
-                st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global[v] for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
-                # Mostrar ejemplos de filas para cada valor de clase
-                st.write("#### Ejemplos para cada clase:")
-                from preprocesamiento import mostrar_ejemplos_por_clase
-                mostrar_ejemplos_por_clase(df, target_col, clase_labels_global, st, n=3)
-                
-                st.caption("""
-                **¿Por qué es importante?**
-                - Interpretar correctamente los resultados depende de saber qué significa cada clase.
-                - Si tienes dudas, consulta la fuente del dataset o pregunta a tu docente.
-                """)
+            st.write("#### Valores únicos de la clase:")
+            conteo_clase = df[target_col].value_counts().sort_index()
+            st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global.get(v, str(v)) for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
+            st.write("#### Ejemplos para cada clase:")
+            from preprocesamiento import mostrar_ejemplos_por_clase
+            mostrar_ejemplos_por_clase(df, target_col, clase_labels_global, st, n=3)
+            st.caption("""
+            **¿Por qué es importante?**
+            - Interpretar correctamente los resultados depende de saber qué significa cada clase.
+            - Si tienes dudas, consulta la fuente del dataset o pregunta a tu docente.
+            """)
             feature_cols = st.multiselect(
                 "Selecciona las columnas de atributos (features):",
                 [c for c in num_cols if c != target_col],
@@ -1172,19 +1142,14 @@ Esto te permite ser más exigente: solo aceptar predicciones cuando el modelo es
         with st.expander("¿Qué es LDA y QDA? (Explicación teórica)"):
             st.markdown(TEXTO_LDA_QDA)
         # Filtrar columnas válidas para target
-        max_unique_target = 20
+        # Usar nombres descriptivos y columna de clase definidos globalmente
         columnas = df.columns.tolist()
         num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
-        cat_cols = [c for c in columnas if (pd.api.types.is_integer_dtype(df[c]) or pd.api.types.is_bool_dtype(df[c]) or isinstance(df[c].dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(df[c])) and df[c].nunique() <= max_unique_target]
-        st.caption("""
-        **¿Qué es la columna de clase (target)?**
-        Es la variable que quieres predecir. Debe ser categórica (por ejemplo: 'especie', 'tipo de vino', 'aprobado/suspendido').
-        El modelo aprenderá a predecir esta columna usando las demás variables.
-        """)
-        if not cat_cols:
-            st.error("No hay columnas válidas para usar como variable de clase (target). Elige un dataset con una columna categórica o entera con pocos valores únicos.")
+        target_col = st.session_state.get("target_col_global")
+        clase_labels_global = st.session_state.get("clase_labels_global", {})
+        if not target_col or target_col not in df.columns:
+            st.error("No hay columna de clase válida seleccionada. Elige una columna de clase en el panel lateral.")
         else:
-            target_col = st.selectbox("Selecciona la columna de clase (target):", cat_cols, index=max(0, len(cat_cols)-1))
             st.caption("""
             **¿Qué son las columnas de atributos (features)?**
             Son las variables que el modelo usará para predecir la clase. Deben ser numéricas (por ejemplo: 'edad', 'alcohol', 'longitud').
@@ -1198,7 +1163,6 @@ Esto te permite ser más exigente: solo aceptar predicciones cuando el modelo es
             # Mostrar ejemplos de filas por clase (modularizado)
             st.write("#### Ejemplos para cada clase:")
             from preprocesamiento import mostrar_ejemplos_por_clase
-            clase_labels_global = st.session_state.get("clase_labels_global", {})
             mostrar_ejemplos_por_clase(df, target_col, clase_labels_global, st, n=3)
 
             # === MATRIZ DE CORRELACIÓN Y COVARIANZA DE FEATURES ===
