@@ -634,21 +634,13 @@ elif analisis == "Exploración de datos" and df is not None:
     - El balance de clases afecta la elección de la métrica y la robustez del modelo.
     - Nombres descriptivos facilitan la interpretación de resultados.
     """)
-    max_unique_target = 20
-    _, cat_cols_eda = seleccionar_columnas(df, max_unique_target=max_unique_target)
-    if cat_cols_eda:
-        st.info("Puedes asignar nombres descriptivos a los valores de la clase para que los gráficos y tablas sean más claros.")
-        class_col = st.selectbox("Selecciona la columna de clase (opcional):", cat_cols_eda, key="eda_class_col")
-        clase_unicos = sorted(df[class_col].unique())
-        clase_labels_eda = st.session_state.get("clase_labels_eda", {})
-        st.write("#### Asigna nombres descriptivos a las clases:")
-        for v in clase_unicos:
-            label = st.text_input(f"Nombre descriptivo para la clase '{v}'", value=clase_labels_eda.get(v, str(v)), key=f"eda_label_{v}")
-            clase_labels_eda[v] = label if label.strip() else str(v)
-        st.session_state["clase_labels_eda"] = clase_labels_eda
-        conteo = df[class_col].value_counts().sort_index()
-        nombres = [clase_labels_eda.get(v, str(v)) for v in conteo.index]
-        st.write(f"#### Distribución de la variable de clase: {class_col}")
+    # Usar nombres descriptivos de las clases si están definidos en session_state
+    target_col = st.session_state.get("target_col_global")
+    clase_labels = st.session_state.get("clase_labels_global")
+    if target_col and clase_labels and target_col in df.columns:
+        conteo = df[target_col].value_counts().sort_index()
+        nombres = [clase_labels.get(v, str(v)) for v in conteo.index]
+        st.write(f"#### Distribución de la variable de clase: {target_col}")
         st.bar_chart(pd.Series(conteo.values, index=nombres))
         st.dataframe(pd.DataFrame({"Clase": nombres, "Cantidad": conteo.values}))
         # Advertencia automática
@@ -658,6 +650,13 @@ elif analisis == "Exploración de datos" and df is not None:
         else:
             st.success("Las clases están razonablemente balanceadas.")
         st.caption("El balance de clases afecta la elección de la métrica y la robustez del modelo. Los nombres descriptivos se usarán en el resto de la app si es posible.")
+    elif target_col and target_col in df.columns:
+        conteo = df[target_col].value_counts().sort_index()
+        st.write(f"#### Distribución de la variable de clase: {target_col}")
+        st.bar_chart(conteo)
+        st.dataframe(pd.DataFrame({"Clase": conteo.index, "Cantidad": conteo.values}))
+    else:
+        st.info("No se ha seleccionado una columna de clase o no hay nombres descriptivos definidos.")
 
 
     st.header("6. Visualizaciones básicas")
