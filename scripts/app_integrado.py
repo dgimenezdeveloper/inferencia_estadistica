@@ -562,7 +562,38 @@ if analisis == "Inicio":
 
 elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
     st.title("🧠 SVM: Máquinas de Vectores de Soporte")
-    
+
+    with st.expander("ℹ️ Guía de uso y significado de cada opción", expanded=True):
+        st.markdown("""
+        ### 🧭 **¿Cómo usar esta vista de SVM?**
+        
+        Aquí puedes entrenar y comparar modelos SVM de forma interactiva. Cada opción tiene un propósito:
+        
+        - **Archivo de datos**: Selecciona el dataset sobre el que quieres trabajar.
+        - **Columna de clase y nombres**: Elige la variable a predecir y asigna nombres descriptivos a las clases.
+        - **Estrategia de entrenamiento**:
+            - *Todo el dataset*: Usa todas las filas (puede ser lento si hay muchas).
+            - *Muestreo estratificado*: Selecciona una muestra representativa, manteniendo proporciones de clase (recomendado para datasets grandes).
+            - *Muestra aleatoria rápida*: Selecciona una muestra aleatoria para pruebas rápidas.
+        - **Selección de variables**: Elige qué columnas usar como predictores. Prueba diferentes combinaciones para ver su impacto.
+        - **Preprocesamiento**: Escala los datos para que SVM funcione correctamente.
+        - **Configuración del modelo**:
+            - *Kernel*: Elige la función de separación (linear, rbf, poly, sigmoid).
+            - *C*: Controla la regularización (C bajo = menos sobreajuste, C alto = más ajuste).
+            - *Gamma*: Influencia de cada muestra (solo para algunos kernels).
+            - *Degree*: Grado del polinomio (solo para kernel poly).
+        - **Optimización automática (Grid Search)**: Busca la mejor combinación de parámetros automáticamente.
+        - **Comparación de kernels**: Compara el rendimiento de los 4 kernels principales.
+        - **Entrenamiento y métricas**: Entrena el modelo y revisa las métricas de rendimiento.
+        - **Visualización de fronteras**: Si eliges solo 2 variables, verás gráficamente cómo el modelo separa las clases.
+        
+        **Recomendaciones:**
+        - Para análisis rápido, usa muestreo estratificado de 5k-10k muestras.
+        - Para análisis final, usa todo el dataset si es posible.
+        - Siempre escala los datos antes de entrenar SVM.
+        - Compara kernels y ajusta parámetros para encontrar el mejor modelo.
+        """)
+
     with st.expander("📚 ¿Qué es SVM? Fundamentos teóricos", expanded=False):
         st.markdown("""
         ### Conceptos fundamentales de SVM
@@ -581,7 +612,7 @@ elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
         - Cuando necesitas robustez ante outliers
         - Para problemas de clasificación binaria o multiclase
         """)
-    
+
     st.info("🎯 **Objetivo didáctico**: Entender cómo diferentes kernels y parámetros afectan la clasificación, visualizar fronteras de decisión y comparar rendimiento.")
     
     # Selección de variables y target
