@@ -543,7 +543,28 @@ elif analisis == "Exploración de datos" and df is not None:
     - Ayuda a identificar posibles errores de carga (valores extremos, ceros, etc.).
     - Da una idea de la dispersión y simetría de los datos.
     """)
+
     st.dataframe(df.describe(include='all').T, use_container_width=True)
+    # Descripción breve de los estadísticos
+    st.markdown("""
+    <div style='font-size:0.98em; color:#b0b8c9; margin-top:0.5em;'>
+    <strong>¿Qué significa cada columna?</strong><br>
+    <ul style='margin-bottom:0.2em;'>
+    <li><b>count</b>: Cantidad de valores no nulos en la columna.</li>
+    <li><b>unique</b>: (Solo categóricas) Número de valores únicos.</li>
+    <li><b>top</b>: (Solo categóricas) Valor más frecuente (moda).</li>
+    <li><b>freq</b>: (Solo categóricas) Frecuencia del valor más frecuente.</li>
+    <li><b>mean</b>: Media aritmética (solo numéricas).</li>
+    <li><b>std</b>: Desviación estándar (solo numéricas).</li>
+    <li><b>min</b>: Valor mínimo.</li>
+    <li><b>25%</b>: Primer cuartil (el 25% de los datos están por debajo).</li>
+    <li><b>50%</b>: Mediana (valor central).</li>
+    <li><b>75%</b>: Tercer cuartil (el 75% de los datos están por debajo).</li>
+    <li><b>max</b>: Valor máximo.</li>
+    </ul>
+    <i>Estos estadísticos ayudan a detectar errores, outliers, escalas diferentes y a entender la distribución de los datos.</i>
+    </div>
+    """, unsafe_allow_html=True)
 
 
     st.header("2. Valores nulos y atípicos")
@@ -637,24 +658,23 @@ elif analisis == "Exploración de datos" and df is not None:
     # Usar nombres descriptivos de las clases si están definidos en session_state
     target_col = st.session_state.get("target_col_global")
     clase_labels = st.session_state.get("clase_labels_global")
-    if target_col and clase_labels and target_col in df.columns:
+    if target_col and target_col in df.columns:
         conteo = df[target_col].value_counts().sort_index()
-        nombres = [clase_labels.get(v, str(v)) for v in conteo.index]
+        if clase_labels:
+            nombres = [clase_labels.get(v, str(v)) for v in conteo.index]
+        else:
+            nombres = [str(v) for v in conteo.index]
         st.write(f"#### Distribución de la variable de clase: {target_col}")
         st.bar_chart(pd.Series(conteo.values, index=nombres))
         st.dataframe(pd.DataFrame({"Clase": nombres, "Cantidad": conteo.values}))
-        # Advertencia automática
-        min_c, max_c = conteo.min(), conteo.max()
-        if min_c / max_c < 0.3:
-            st.warning("Las clases están desbalanceadas. Considera usar métricas como f1_macro o balanced accuracy y técnicas de balanceo.")
-        else:
-            st.success("Las clases están razonablemente balanceadas.")
+        # Advertencia automática solo si hay al menos dos clases
+        if len(conteo) >= 2:
+            min_c, max_c = conteo.min(), conteo.max()
+            if max_c > 0 and min_c / max_c < 0.3:
+                st.warning("Las clases están desbalanceadas. Considera usar métricas como f1_macro o balanced accuracy y técnicas de balanceo.")
+            else:
+                st.success("Las clases están razonablemente balanceadas.")
         st.caption("El balance de clases afecta la elección de la métrica y la robustez del modelo. Los nombres descriptivos se usarán en el resto de la app si es posible.")
-    elif target_col and target_col in df.columns:
-        conteo = df[target_col].value_counts().sort_index()
-        st.write(f"#### Distribución de la variable de clase: {target_col}")
-        st.bar_chart(conteo)
-        st.dataframe(pd.DataFrame({"Clase": conteo.index, "Cantidad": conteo.values}))
     else:
         st.info("No se ha seleccionado una columna de clase o no hay nombres descriptivos definidos.")
 
@@ -695,13 +715,13 @@ elif analisis == "Exploración de datos" and df is not None:
     if max_cov > 100:
         recomendaciones.append("Escala las variables si hay covarianzas muy altas.")
     # Clases desbalanceadas
-    if cat_cols_eda and min_c / max_c < 0.3:
+    if 'min_c' in locals() and 'max_c' in locals() and max_c > 0 and min_c / max_c < 0.3:
         recomendaciones.append("Usa métricas robustas al desbalance (f1_macro, balanced accuracy) y considera técnicas de balanceo.")
     # Algoritmo sugerido
     if n_high_corr > 0:
         alg = "LDA/QDA o Bayes Ingenuo + PCA"
         just = "porque hay variables muy correlacionadas. Bayes Ingenuo puro no es recomendable salvo que uses PCA."
-    elif cat_cols_eda and min_c / max_c < 0.3:
+    elif 'min_c' in locals() and 'max_c' in locals() and max_c > 0 and min_c / max_c < 0.3:
         alg = "LDA/QDA (con métricas robustas)"
         just = "porque las clases están desbalanceadas."
     elif max_cov > 100:
