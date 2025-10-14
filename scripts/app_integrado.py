@@ -818,12 +818,45 @@ elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
             
             with cols1:
                 st.write("**Variables disponibles:**")
-                selected_features = st.multiselect(
-                    "Selecciona las variables para el modelo",
-                    feature_cols,
-                    default=feature_cols[:min(4, len(feature_cols))],
-                    key="svm_features"
-                )
+                # --- Sugerencia automática de variables ---
+                if 'svm_sugeridas' not in st.session_state:
+                    st.session_state['svm_sugeridas'] = feature_cols[:2]
+
+                col_sug1, col_sug2 = st.columns([2,1])
+                with col_sug1:
+                    # Filtrar sugeridas para que estén en feature_cols
+                    sugeridas_validas = [v for v in st.session_state['svm_sugeridas'] if v in feature_cols]
+                    # Si no hay sugeridas válidas, usar primeras dos
+                    if len(sugeridas_validas) < 2:
+                        sugeridas_validas = feature_cols[:2]
+                        st.session_state['svm_sugeridas'] = sugeridas_validas
+                    selected_features = st.multiselect(
+                        "Selecciona las variables para el modelo",
+                        feature_cols,
+                        default=sugeridas_validas,
+                        key="svm_features"
+                    )
+                with col_sug2:
+                    if st.button("🔎 Sugerir mejores variables", key="btn_sugerir_vars"):
+                        try:
+                            from sklearn.feature_selection import SelectKBest, f_classif
+                            import numpy as np
+                            # Prepara X numérico y y
+                            X_sug = df_svm[feature_cols]
+                            y_sug = y
+                            # Imputar nulos si hay
+                            if X_sug.isnull().sum().sum() > 0:
+                                from preprocesamiento import manejar_nulos
+                                X_sug = manejar_nulos(X_sug, metodo='media')
+                            # SelectKBest con ANOVA F-score
+                            selector = SelectKBest(score_func=f_classif, k=2)
+                            selector.fit(X_sug, y_sug)
+                            idxs = np.argsort(selector.scores_)[::-1][:2]
+                            mejores_vars = [feature_cols[i] for i in idxs]
+                            st.session_state['svm_sugeridas'] = mejores_vars
+                            st.success(f"Variables sugeridas: {mejores_vars[0]} y {mejores_vars[1]}")
+                        except Exception as e:
+                            st.error(f"No se pudo sugerir variables automáticamente: {str(e)}")
             
             with cols2:
                 st.write("**Información del dataset:**")
@@ -841,17 +874,59 @@ elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
             
             if len(selected_features) >= 2:
                 X = df_svm[selected_features]
-                
+
+                # Crear columna temporal con nombres descriptivos de clase
+                if clase_labels:
+                    df_svm = df_svm.copy()
+                    df_svm['Clase_desc'] = df_svm[target_col].map(clase_labels)
+                    color_col = 'Clase_desc'
+                    color_label = 'Clase'
+                else:
+                    color_col = target_col
+                    color_label = target_col
+
+                # === Gráficos adicionales: histogramas y dispersión ===
+                st.subheader("📊 Visualización de variables seleccionadas")
+                col_hist, col_scat = st.columns([2, 3])
+                with col_hist:
+                    st.markdown("**Histogramas de variables**")
+                    import plotly.express as px
+                    for col in selected_features:
+                        fig_hist = px.histogram(df_svm, x=col, color=color_col, nbins=20,
+                            title=f"Histograma de {col}",
+                            color_discrete_sequence=px.colors.qualitative.Plotly,
+                            labels={color_col: color_label})
+                        fig_hist.update_layout(height=220, margin=dict(l=10, r=10, t=40, b=10))
+                        st.plotly_chart(fig_hist, use_container_width=True)
+                with col_scat:
+                    if len(selected_features) >= 2:
+                        st.markdown("**Dispersión de las dos primeras variables**")
+                        fig_scat = px.scatter(
+                            df_svm,
+                            x=selected_features[0],
+                            y=selected_features[1],
+                            color=color_col,
+                            symbol=color_col,
+                            title=f"Dispersión: {selected_features[0]} vs {selected_features[1]}",
+                            color_discrete_sequence=px.colors.qualitative.Plotly,
+                            labels={color_col: color_label}
+                        )
+                        fig_scat.update_traces(marker=dict(size=8, line=dict(width=1, color='white')))
+                        fig_scat.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+                        st.plotly_chart(fig_scat, use_container_width=True)
+                    else:
+                        st.info("Selecciona al menos 2 variables para ver el gráfico de dispersión.")
+
                 # Verificar y manejar nulos
                 if X.isnull().sum().sum() > 0:
                     st.warning("⚠️ Se encontraron valores nulos. Imputando con la media...")
                     from preprocesamiento import manejar_nulos
                     X = manejar_nulos(X, metodo='media')
-                
+
                 # Escalado de datos
                 st.subheader("⚙️ 2. Preprocesamiento")
                 escalar_datos_svm = st.checkbox("Escalar datos (recomendado para SVM)", value=True, key="escalar_svm")
-                
+
                 if escalar_datos_svm:
                     from sklearn.preprocessing import StandardScaler
                     scaler = StandardScaler()
@@ -1097,8 +1172,8 @@ elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
                                     class_name = clase_labels.get(class_val, str(class_val)) if clase_labels else str(class_val)
                                     
                                     fig_boundary.add_trace(go.Scatter(
-                                        x=X_model.iloc[mask, 0],
-                                        y=X_model.iloc[mask, 1],
+                                        x=X_model.loc[mask, X_model.columns[0]],
+                                        y=X_model.loc[mask, X_model.columns[1]],
                                         mode='markers',
                                         name=class_name,
                                         marker=dict(
@@ -1143,11 +1218,49 @@ elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
                             else:
                                 st.info("🗺️ Para visualizar fronteras de decisión, selecciona exactamente 2 variables.")
                             
-                            # Curvas ROC para problemas binarios
-                            if len(np.unique(y)) == 2 and y_prob is not None:
-                                st.subheader("📈 7. Curva ROC")
-                                from metricas import crear_curvas_roc_interactivas
-                                crear_curvas_roc_interactivas(y, y_prob, labels=np.unique(y), clase_labels=clase_labels)
+
+                            # Curvas ROC para binario y multiclase
+                            st.subheader("📈 7. Curva ROC")
+                            from sklearn.preprocessing import label_binarize
+                            import plotly.graph_objects as go
+                            import numpy as np
+                            n_classes = len(np.unique(y))
+                            y_unique = np.unique(y)
+                            if y_prob is not None and n_classes >= 2:
+                                y_bin = label_binarize(y, classes=y_unique)
+                                if n_classes == 2:
+                                    # Binario: usar la columna de la clase positiva
+                                    from metricas import crear_curvas_roc_interactivas
+                                    crear_curvas_roc_interactivas(y, y_prob, labels=y_unique, clase_labels=clase_labels)
+                                else:
+                                    # Multiclase: una curva por clase (one-vs-rest)
+                                    from sklearn.metrics import roc_curve, auc
+                                    fig_roc = go.Figure()
+                                    for i, class_val in enumerate(y_unique):
+                                        fpr, tpr, _ = roc_curve(y_bin[:, i], y_prob[:, i])
+                                        roc_auc = auc(fpr, tpr)
+                                        class_name = clase_labels.get(class_val, str(class_val)) if clase_labels else str(class_val)
+                                        fig_roc.add_trace(go.Scatter(
+                                            x=fpr, y=tpr, mode='lines',
+                                            name=f"Clase {class_name} (AUC={roc_auc:.2f})",
+                                            line=dict(width=2)
+                                        ))
+                                    fig_roc.add_trace(go.Scatter(
+                                        x=[0, 1], y=[0, 1], mode='lines',
+                                        name='Aleatorio',
+                                        line=dict(dash='dash', color='gray'),
+                                        showlegend=True
+                                    ))
+                                    fig_roc.update_layout(
+                                        title="Curvas ROC multiclase (one-vs-rest)",
+                                        xaxis_title="Tasa de Falsos Positivos (FPR)",
+                                        yaxis_title="Tasa de Verdaderos Positivos (TPR)",
+                                        width=700, height=450
+                                    )
+                                    st.plotly_chart(fig_roc, use_container_width=True)
+                                    st.info("Cada curva muestra la capacidad del modelo para distinguir una clase frente al resto. El AUC mide la calidad de la separación para cada clase.")
+                            else:
+                                st.info("No se pueden calcular curvas ROC: faltan probabilidades o clases.")
                             
                             # Análisis e interpretación automática
                             st.subheader("🧠 8. Interpretación y recomendaciones")
