@@ -599,17 +599,187 @@ elif analisis == "SVM (Máquinas de Vectores de Soporte)" and df is not None:
         else:
             st.success(f"✅ Dataset cargado: {len(df)} muestras, {len(feature_cols)} variables numéricas, {len(y.unique())} clases")
             
-            # --- NUEVO: Límite de muestras para SVM ---
-            MAX_SVM_SAMPLES = 5000
-            usar_muestreo = False
-            if len(df) > MAX_SVM_SAMPLES:
-                st.warning(f"⚠️ El dataset tiene {len(df)} muestras. El entrenamiento de SVM puede ser extremadamente lento o colgarse con más de {MAX_SVM_SAMPLES} muestras. Se recomienda entrenar con una muestra aleatoria.")
-                usar_muestreo = st.checkbox(f"Entrenar SVM solo con una muestra aleatoria de {MAX_SVM_SAMPLES} filas", value=True, key="svm_sample_checkbox")
-            if usar_muestreo:
-                df_svm = df.sample(n=MAX_SVM_SAMPLES, random_state=42)
-                y = df_svm[target_col]
-            else:
-                df_svm = df
+            # --- ESTRATEGIA INTELIGENTE DE MUESTREO PARA SVM ---
+            df_svm = df.copy()
+            muestreo_aplicado = False
+            
+            if len(df) > 10000:
+                st.warning(f"⚠️ **Dataset grande detectado**: {len(df)} muestras")
+                st.markdown("""
+                **SVM y datasets grandes:**
+                - SVM tiene complejidad O(n²) a O(n³), se vuelve muy lento con muchos datos
+                - Con >50k muestras puede tardar horas o colgarse
+                - **Alternativas inteligentes**: muestreo estratificado, selección representativa
+                """)
+                
+                # Opciones de muestreo más inteligentes
+                estrategia_muestreo = st.radio(
+                    "**Estrategia de entrenamiento:**",
+                    [
+                        "🚀 Usar todo el dataset (puede ser lento)",
+                        "🎯 Muestreo estratificado inteligente (recomendado)", 
+                        "⚡ Muestra aleatoria rápida"
+                    ],
+                    index=1,
+                    key="estrategia_svm"
+                )
+                
+                if estrategia_muestreo.startswith("🎯"):
+                    # Muestreo estratificado inteligente
+                    st.info("**Muestreo estratificado**: Mantiene la proporción de cada clase, preserva la estructura del dataset")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        tamaño_muestra = st.slider(
+                            "Tamaño de la muestra estratificada", 
+                            min_value=2000, 
+                            max_value=min(20000, len(df)), 
+                            value=min(8000, len(df)), 
+                            step=1000,
+                            key="tamaño_estratificado"
+                        )
+                    with col2:
+                        # Mostrar distribución actual de clases
+                        class_dist = y.value_counts()
+                        st.write("**Distribución de clases actual:**")
+                        for clase, count in class_dist.items():
+                            clase_nombre = clase_labels.get(clase, str(clase)) if clase_labels else str(clase)
+                            porcentaje = (count / len(y)) * 100
+                            st.write(f"- {clase_nombre}: {count} ({porcentaje:.1f}%)")
+                    
+                    # Aplicar muestreo estratificado
+                    if tamaño_muestra >= len(df):
+                        # Si el tamaño de muestra es igual o mayor al dataset, usar todo
+                        df_svm = df.copy()
+                        y = df_svm[target_col]
+                        st.info(f"✅ Usando todo el dataset: {len(df_svm)} muestras (tamaño solicitado >= dataset)")
+                    else:
+                        # Aplicar muestreo estratificado normal
+                        from sklearn.model_selection import train_test_split
+                        test_fraction = tamaño_muestra / len(df)
+                        
+                        # Asegurar que test_size esté en rango válido (0.0, 1.0)
+                        if test_fraction >= 1.0:
+                            test_fraction = 0.99  # Usar 99% como máximo
+                        elif test_fraction <= 0.0:
+                            test_fraction = 0.01  # Usar 1% como mínimo
+                        
+                        _, df_sampled, _, y_sampled = train_test_split(
+                            df, y, 
+                            test_size=test_fraction, 
+                            stratify=y, 
+                            random_state=42
+                        )
+                        df_svm = df_sampled
+                        y = y_sampled
+                        st.success(f"✅ Muestreo estratificado aplicado: {len(df_svm)} muestras manteniendo proporciones de clase")
+                    
+                    muestreo_aplicado = True
+                    
+                elif estrategia_muestreo.startswith("⚡"):
+                    # Muestra aleatoria simple
+                    tamaño_rapido = st.slider(
+                        "Tamaño de muestra aleatoria", 
+                        min_value=1000, 
+                        max_value=min(10000, len(df)), 
+                        value=min(5000, len(df)), 
+                        step=500,
+                        key="tamaño_rapido"
+                    )
+                    
+                    # Asegurar que no se pida más muestras de las disponibles
+                    tamaño_efectivo = min(tamaño_rapido, len(df))
+                    
+                    if tamaño_efectivo >= len(df):
+                        df_svm = df.copy()
+                        y = df_svm[target_col]
+                        st.info(f"✅ Usando todo el dataset: {len(df_svm)} muestras (tamaño solicitado >= dataset)")
+                    else:
+                        df_svm = df.sample(n=tamaño_efectivo, random_state=42)
+                        y = df_svm[target_col]
+                        st.warning(f"⚡ Muestra aleatoria aplicada: {len(df_svm)} muestras (puede alterar distribución de clases)")
+                    
+                    muestreo_aplicado = True
+                
+                else:
+                    # Usar todo el dataset con advertencia
+                    st.error(f"⚠️ **ADVERTENCIA**: Usar {len(df)} muestras puede ser MUY lento (estimado: >10 minutos)")
+                    confirmar = st.checkbox("Confirmo que quiero usar todo el dataset (bajo mi responsabilidad)", key="confirmar_completo")
+                    if not confirmar:
+                        st.stop()
+            
+            elif len(df) > 5000:
+                st.info(f"📊 Dataset mediano: {len(df)} muestras. SVM debería funcionar bien, pero puede tardar algunos minutos.")
+                usar_muestreo = st.checkbox(f"🎯 Aplicar muestreo estratificado de 5000 muestras (más rápido)", value=False, key="muestreo_opcional")
+                if usar_muestreo:
+                    from sklearn.model_selection import train_test_split
+                    test_fraction = 5000 / len(df)
+                    
+                    # Asegurar que test_size esté en rango válido
+                    if test_fraction >= 1.0:
+                        # Si 5000 >= len(df), usar todo el dataset
+                        df_svm = df.copy()
+                        y = df_svm[target_col]
+                        st.info("✅ Usando todo el dataset (5000 >= tamaño actual)")
+                    else:
+                        _, df_sampled, _, y_sampled = train_test_split(
+                            df, y, test_size=test_fraction, stratify=y, random_state=42
+                        )
+                        df_svm = df_sampled
+                        y = y_sampled
+                        st.success("✅ Muestreo estratificado aplicado: 5000 muestras")
+                    
+                    muestreo_aplicado = True
+            
+            # Mostrar información final del dataset a usar
+            if muestreo_aplicado:
+                st.markdown("---")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("📊 Dataset original", f"{len(df):,} muestras")
+                    st.metric("🎯 Dataset para SVM", f"{len(df_svm):,} muestras")
+                with col2:
+                    reduccion = (1 - len(df_svm)/len(df)) * 100
+                    st.metric("📉 Reducción", f"{reduccion:.1f}%")
+                    # Verificar si se mantuvieron las proporciones
+                    if len(y.unique()) == len(df[target_col].unique()):
+                        st.success("✅ Todas las clases preservadas")
+                    else:
+                        st.warning("⚠️ Algunas clases se perdieron en el muestreo")
+                
+                # Información educativa sobre el muestreo
+                with st.expander("🎓 **¿Pierdo información con el muestreo? (Clic para aprender)**", expanded=False):
+                    st.markdown("""
+                    ### 🤔 ¿Realmente pierdo información importante?
+                    
+                    **La respuesta corta: Depende del tipo de muestreo y la naturaleza de tus datos.**
+                    
+                    #### ✅ **Muestreo estratificado (recomendado)**
+                    - **Preserva la estructura**: Mantiene las proporciones de cada clase
+                    - **Representativo**: Si tu dataset es homogéneo, una muestra estratificada de 5k-10k puede ser tan informativa como el dataset completo
+                    - **Validez estadística**: Estudios muestran que muestras estratificadas >1000 por clase suelen ser representativas
+                    
+                    #### ⚠️ **Muestreo aleatorio simple**
+                    - **Riesgo de sesgo**: Puede sobrerepresentar o subrepresentar algunas clases
+                    - **Pérdida de patrones raros**: Puede perder muestras de clases minoritarias
+                    
+                    #### 📊 **¿Cuándo el muestreo es aceptable?**
+                    - **Datos redundantes**: Si tienes muchas muestras similares
+                    - **Clases balanceadas**: Con >1000 muestras por clase en la muestra
+                    - **Objetivo exploratorio**: Para análisis inicial antes del modelo final
+                    
+                    #### ❌ **Cuándo NO hacer muestreo:**
+                    - **Clases muy desbalanceadas**: Puedes perder clases minoritarias
+                    - **Datos únicos**: Cada muestra aporta información valiosa
+                    - **Análisis final**: Para el modelo de producción usa todos los datos
+                    
+                    #### 🧠 **Recomendación práctica:**
+                    1. **Exploración inicial**: Usa muestreo estratificado para entender el problema
+                    2. **Ajuste de hiperparámetros**: Usa toda la data o validación cruzada
+                    3. **Modelo final**: Entrena con todos los datos disponibles
+                    
+                    **💡 Tip**: Si SVM es muy lento, considera algoritmos alternativos como Random Forest o Gradient Boosting que escalan mejor.
+                    """)
             
             # Selección de variables para el análisis
             st.subheader("🔍 1. Selección de variables")
