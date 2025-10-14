@@ -405,18 +405,47 @@ st.title("Inferencia Estadística y Reconocimiento de Patrones")
 # === Selector principal con opción de inicio ===
 analisis = st.sidebar.selectbox(
     "Selecciona el tipo de análisis",
-    ["Inicio", "Discriminante (LDA/QDA)", "Bayes Ingenuo", "Reducción de dimensiones (PCA)"]
+    ["Inicio", "Exploración de datos", "Discriminante (LDA/QDA)", "Bayes Ingenuo", "Reducción de dimensiones (PCA)"]
 )
 
+
+# === Selección de archivo y columna de clase global (antes de todo) ===
 carpeta_datos = os.path.join(os.path.dirname(__file__), '..', 'datos')
 archivos_csv = [f for f in os.listdir(carpeta_datos) if f.endswith('.csv')] if os.path.exists(carpeta_datos) else []
-opcion_archivo = st.selectbox("Seleccionar archivo CSV", archivos_csv)
-archivo_subido = st.file_uploader("O sube tu propio archivo CSV", type=["csv"])
+st.sidebar.markdown("---")
+st.sidebar.write("### 1️⃣ Selecciona el archivo de datos")
+opcion_archivo = st.sidebar.selectbox("Seleccionar archivo CSV", archivos_csv)
+archivo_subido = st.sidebar.file_uploader("O sube tu propio archivo CSV", type=["csv"])
 
 # Cargar el dataset (modularizado)
 df, _msg_carga = cargar_dataset(archivo_subido, opcion_archivo, carpeta_datos)
 if _msg_carga:
-    st.success(_msg_carga)
+    st.sidebar.success(_msg_carga)
+
+# Selección global de columna de clase y nombres descriptivos
+if df is not None:
+    max_unique_target = 20
+    num_cols_global, cat_cols_global = seleccionar_columnas(df, max_unique_target=max_unique_target)
+    if cat_cols_global:
+        st.sidebar.markdown("---")
+        st.sidebar.write("### 2️⃣ Selecciona la columna de clase y asigna nombres descriptivos")
+        target_col_global = st.sidebar.selectbox("Columna de clase (target):", cat_cols_global, key="target_global_sidebar")
+        clase_unicos_global = sorted(df[target_col_global].unique())
+        clase_labels_global = st.session_state.get("clase_labels_global", {})
+        for v in clase_unicos_global:
+            label = st.sidebar.text_input(f"Nombre descriptivo para '{v}'", value=clase_labels_global.get(v, str(v)), key=f"sidebar_label_{v}")
+            clase_labels_global[v] = label if label.strip() else str(v)
+        st.session_state["target_col_global"] = target_col_global
+        st.session_state["clase_labels_global"] = clase_labels_global
+        st.sidebar.write("#### Vista previa de clases:")
+        conteo = df[target_col_global].value_counts().sort_index()
+        nombres = [clase_labels_global.get(v, str(v)) for v in conteo.index]
+        st.sidebar.dataframe(pd.DataFrame({"Clase": nombres, "Cantidad": conteo.values}))
+        st.sidebar.caption("Estos nombres descriptivos se usarán en todas las secciones de la app.")
+    else:
+        st.sidebar.warning("No se detectaron columnas categóricas elegibles como clase. Elige un archivo adecuado.")
+
+# El resto de la app usará st.session_state["target_col_global"] y st.session_state["clase_labels_global"]
 
 
 if analisis == "Inicio":
@@ -498,6 +527,203 @@ if analisis == "Inicio":
     **Recuerda:** El análisis correcto es el que puedes justificar teóricamente y que se adapta a la naturaleza de tus datos.
     """)
     st.success("¡Listo! Usa el menú de la izquierda para explorar cada método, revisa los supuestos y justifica tus decisiones.")
+
+elif analisis == "Exploración de datos" and df is not None:
+    st.title("Exploración de datos: Análisis exploratorio antes de modelar")
+    st.markdown("""
+    Antes de aplicar cualquier algoritmo, explora el dataset para entender su estructura, relaciones y posibles problemas. Aquí encontrarás explicaciones, advertencias y sugerencias automáticas para guiarte en la interpretación y el siguiente paso.
+    """)
+    # Estadísticos descriptivos
+
+    st.header("1. Estadísticos descriptivos")
+    st.info("Revisa la media, mediana, desviación estándar, valores mínimos y máximos de cada variable numérica. Esto ayuda a detectar escalas diferentes, outliers y posibles errores de carga.")
+    st.markdown("""
+    **¿Por qué es importante?**
+    - Permite detectar variables con escalas muy diferentes (puede requerir escalado).
+    - Ayuda a identificar posibles errores de carga (valores extremos, ceros, etc.).
+    - Da una idea de la dispersión y simetría de los datos.
+    """)
+    st.dataframe(df.describe(include='all').T, use_container_width=True)
+
+
+    st.header("2. Valores nulos y atípicos")
+    st.markdown("""
+    **¿Por qué es importante?**
+    - Los nulos pueden impedir el entrenamiento de modelos o sesgar resultados.
+    - Los outliers pueden distorsionar la media, la varianza y afectar la clasificación.
+    """)
+    nulos = df.isnull().sum()
+    total = len(df)
+    nulos_pct = (nulos / total * 100).round(2)
+    st.write("#### Resumen de nulos por columna:")
+    st.dataframe(pd.DataFrame({"Nulos": nulos, "%": nulos_pct}))
+    # Advertencia automática
+    cols_muchos_nulos = nulos_pct[nulos_pct > 20].index.tolist()
+    if cols_muchos_nulos:
+        st.warning(f"Las columnas {', '.join(cols_muchos_nulos)} tienen más de 20% de nulos. Considera imputar, eliminar o analizar su impacto.")
+    else:
+        st.success("No se detectaron columnas con más de 20% de nulos.")
+
+    # Outliers básicos (z-score > 3)
+    from scipy.stats import zscore
+    num_cols_eda = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if num_cols_eda:
+        zscores = df[num_cols_eda].apply(zscore).abs()
+        outliers = (zscores > 3).sum()
+        st.write("#### Outliers detectados (z-score > 3):")
+        st.dataframe(pd.DataFrame({"Outliers": outliers, "%": (outliers/total*100).round(2)}))
+        cols_muchos_out = (outliers/total*100 > 10)
+        if cols_muchos_out.any():
+            st.warning("Hay variables con más de 10% de outliers. Considera revisar, transformar o filtrar esos valores.")
+        else:
+            st.success("No se detectaron variables con más de 10% de outliers.")
+
+    # Matriz de correlación
+
+    st.header("3. Matriz de correlación")
+    st.markdown("""
+    **¿Por qué es importante?**
+    - Correlaciones altas indican redundancia y pueden afectar a Bayes Ingenuo y motivar el uso de PCA.
+    - LDA/QDA funcionan mejor con baja correlación entre variables.
+    """)
+    if len(num_cols_eda) >= 2:
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        corr = df[num_cols_eda].corr()
+        fig_corr, ax_corr = plt.subplots(figsize=(min(0.7*len(num_cols_eda)+2, 10), min(0.7*len(num_cols_eda)+2, 10)))
+        sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=ax_corr, annot_kws={"size":9})
+        ax_corr.set_title("Matriz de correlación (todas las variables numéricas)")
+        plt.tight_layout()
+        st.pyplot(fig_corr)
+        # Advertencia automática
+        high_corr = (corr.abs() > 0.85) & (corr.abs() < 0.9999)
+        n_high_corr = high_corr.sum().sum() // 2
+        if n_high_corr > 0:
+            st.warning(f"Se detectaron {n_high_corr} pares de variables con correlación > 0.85. Considera eliminar variables redundantes o aplicar PCA antes de Bayes Ingenuo.")
+        else:
+            st.success("No se detectaron pares de variables con correlación mayor a 0.85.")
+        st.caption("Correlaciones cercanas a 1 o -1 fuera de la diagonal sugieren variables redundantes. Bayes Ingenuo asume independencia, LDA/QDA prefieren baja correlación.")
+
+    # Matriz de covarianza
+
+    st.header("4. Matriz de covarianza")
+    st.markdown("""
+    **¿Por qué es importante?**
+    - Covarianzas altas pueden indicar redundancia o escalas muy diferentes.
+    - LDA asume covarianzas similares entre clases; PCA usa esta matriz para encontrar combinaciones óptimas.
+    """)
+    if len(num_cols_eda) >= 2:
+        cov = df[num_cols_eda].cov()
+        fig_cov, ax_cov = plt.subplots(figsize=(min(0.7*len(num_cols_eda)+2, 10), min(0.7*len(num_cols_eda)+2, 10)))
+        sns.heatmap(cov, annot=True, fmt=".2f", cmap="YlGnBu", ax=ax_cov, annot_kws={"size":9})
+        ax_cov.set_title("Matriz de covarianza (todas las variables numéricas)")
+        plt.tight_layout()
+        st.pyplot(fig_cov)
+        # Advertencia automática
+        max_cov = cov.where(~cov.isna()).abs().values[np.triu_indices_from(cov, k=1)].max() if cov.shape[0] > 1 else 0
+        if max_cov > 100:
+            st.warning("Se detectan covarianzas muy altas entre algunas variables. Considera escalar los datos o aplicar PCA.")
+        else:
+            st.success("No se detectaron covarianzas excesivamente altas.")
+        st.caption("Covarianzas altas pueden indicar redundancia o escalas muy diferentes. LDA asume covarianzas similares entre clases.")
+
+
+    st.header("5. Distribución de clases (si aplica)")
+    st.markdown("""
+    **¿Por qué es importante?**
+    - El balance de clases afecta la elección de la métrica y la robustez del modelo.
+    - Nombres descriptivos facilitan la interpretación de resultados.
+    """)
+    max_unique_target = 20
+    _, cat_cols_eda = seleccionar_columnas(df, max_unique_target=max_unique_target)
+    if cat_cols_eda:
+        st.info("Puedes asignar nombres descriptivos a los valores de la clase para que los gráficos y tablas sean más claros.")
+        class_col = st.selectbox("Selecciona la columna de clase (opcional):", cat_cols_eda, key="eda_class_col")
+        clase_unicos = sorted(df[class_col].unique())
+        clase_labels_eda = st.session_state.get("clase_labels_eda", {})
+        st.write("#### Asigna nombres descriptivos a las clases:")
+        for v in clase_unicos:
+            label = st.text_input(f"Nombre descriptivo para la clase '{v}'", value=clase_labels_eda.get(v, str(v)), key=f"eda_label_{v}")
+            clase_labels_eda[v] = label if label.strip() else str(v)
+        st.session_state["clase_labels_eda"] = clase_labels_eda
+        conteo = df[class_col].value_counts().sort_index()
+        nombres = [clase_labels_eda.get(v, str(v)) for v in conteo.index]
+        st.write(f"#### Distribución de la variable de clase: {class_col}")
+        st.bar_chart(pd.Series(conteo.values, index=nombres))
+        st.dataframe(pd.DataFrame({"Clase": nombres, "Cantidad": conteo.values}))
+        # Advertencia automática
+        min_c, max_c = conteo.min(), conteo.max()
+        if min_c / max_c < 0.3:
+            st.warning("Las clases están desbalanceadas. Considera usar métricas como f1_macro o balanced accuracy y técnicas de balanceo.")
+        else:
+            st.success("Las clases están razonablemente balanceadas.")
+        st.caption("El balance de clases afecta la elección de la métrica y la robustez del modelo. Los nombres descriptivos se usarán en el resto de la app si es posible.")
+
+
+    st.header("6. Visualizaciones básicas")
+    st.markdown("""
+    **¿Por qué es importante?**
+    - Permite detectar asimetrías, outliers y escalas diferentes.
+    - Ayuda a decidir si es necesario escalar, transformar o filtrar variables.
+    """)
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    cols_to_plot = num_cols_eda[:6]  # Limitar para no saturar
+    if cols_to_plot:
+        fig, axs = plt.subplots(len(cols_to_plot), 1, figsize=(7, 2.5*len(cols_to_plot)))
+        if len(cols_to_plot) == 1:
+            axs = [axs]
+        for i, col in enumerate(cols_to_plot):
+            sns.histplot(df[col].dropna(), kde=True, ax=axs[i], color='#4f8cff')
+            axs[i].set_title(f"Distribución de {col}")
+        plt.tight_layout()
+        st.pyplot(fig)
+        st.caption("Distribuciones sesgadas o multimodales pueden requerir transformaciones o análisis especial.")
+
+    # === Recomendación final automática ===
+    st.header("7. Recomendación y próximos pasos")
+    recomendaciones = []
+    # Nulos
+    if cols_muchos_nulos:
+        recomendaciones.append("Imputa o elimina columnas con muchos nulos antes de modelar.")
+    # Outliers
+    if cols_muchos_out.any():
+        recomendaciones.append("Considera tratar los outliers (transformar, filtrar o escalar).")
+    # Correlación
+    if n_high_corr > 0:
+        recomendaciones.append("Aplica PCA o elimina variables redundantes si usarás Bayes Ingenuo.")
+    # Covarianza
+    if max_cov > 100:
+        recomendaciones.append("Escala las variables si hay covarianzas muy altas.")
+    # Clases desbalanceadas
+    if cat_cols_eda and min_c / max_c < 0.3:
+        recomendaciones.append("Usa métricas robustas al desbalance (f1_macro, balanced accuracy) y considera técnicas de balanceo.")
+    # Algoritmo sugerido
+    if n_high_corr > 0:
+        alg = "LDA/QDA o Bayes Ingenuo + PCA"
+        just = "porque hay variables muy correlacionadas. Bayes Ingenuo puro no es recomendable salvo que uses PCA."
+    elif cat_cols_eda and min_c / max_c < 0.3:
+        alg = "LDA/QDA (con métricas robustas)"
+        just = "porque las clases están desbalanceadas."
+    elif max_cov > 100:
+        alg = "LDA/QDA (tras escalar)"
+        just = "porque hay covarianzas muy altas."
+    else:
+        alg = "Cualquier algoritmo (LDA, QDA, Bayes Ingenuo)"
+        just = "porque no se detectan problemas graves en la exploración."
+    st.info(f"**Sugerencia de algoritmo inicial:** {alg}\n\n*Justificación:* {just}")
+    if recomendaciones:
+        st.warning("**Recomendaciones para mejorar la clasificación:**\n- " + "\n- ".join(recomendaciones))
+    else:
+        st.success("No se detectan problemas graves. Puedes avanzar al modelado.")
+    st.markdown("""
+    ---
+    **¿Cómo continuar?**
+    1. Aplica las recomendaciones anteriores si corresponde.
+    2. Elige el algoritmo sugerido y justifica tu decisión.
+    3. Si las métricas no son buenas, revisa la exploración y prueba otras técnicas (PCA, balanceo, selección de variables).
+    4. Justifica cada paso con base en la evidencia explorada.
+    """)
 
 elif df is not None:
 
