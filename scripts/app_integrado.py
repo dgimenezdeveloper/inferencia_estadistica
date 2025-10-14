@@ -5,6 +5,37 @@ import os
 import warnings
 import matplotlib.pyplot as plt
 
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import accuracy_score, f1_score, balanced_accuracy_score
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA, QuadraticDiscriminantAnalysis as QDA
+from sklearn.naive_bayes import GaussianNB
+from sklearn.svm import SVC
+
+import time
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import accuracy_score, f1_score, balanced_accuracy_score
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA, QuadraticDiscriminantAnalysis as QDA
+from sklearn.naive_bayes import GaussianNB
+from sklearn.svm import SVC
+
+ 
+ 
+ 
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import warnings
+import matplotlib.pyplot as plt
+
 # Función helper para suprimir warnings de Plotly en Streamlit
 def safe_plotly_chart(fig, **kwargs):
     """Wrapper para st.plotly_chart que suprime warnings de deprecación y agrupa opciones en 'config'"""
@@ -433,11 +464,18 @@ st.markdown(f"""
 
 st.title("Inferencia Estadística y Reconocimiento de Patrones")
 
-
 # === Selector principal con opción de inicio ===
 analisis = st.sidebar.selectbox(
     "Selecciona el tipo de análisis",
-    ["Inicio", "Exploración de datos", "Discriminante (LDA/QDA)", "Bayes Ingenuo", "Reducción de dimensiones (PCA)", "SVM (Máquinas de Vectores de Soporte)"]
+    [
+        "Inicio",
+        "Exploración de datos",
+        "Discriminante (LDA/QDA)",
+        "Bayes Ingenuo",
+        "Reducción de dimensiones (PCA)",
+        "SVM (Máquinas de Vectores de Soporte)",
+        "Comparativa de Modelos"
+    ]
 )
 
 
@@ -1597,6 +1635,115 @@ elif analisis == "Exploración de datos" and df is not None:
     3. Si las métricas no son buenas, revisa la exploración y prueba otras técnicas (PCA, balanceo, selección de variables).
     4. Justifica cada paso con base en la evidencia explorada.
     """)
+
+# === Comparativa de Modelos ===
+elif analisis == "Comparativa de Modelos" and df is not None:
+    st.title("🏆 Comparativa de Modelos: LDA, QDA, Bayes, SVM (con y sin PCA)")
+    st.markdown("""
+    Esta vista entrena y evalúa automáticamente los principales algoritmos de clasificación sobre tu dataset, con y sin reducción de dimensionalidad (PCA).
+    Se muestran métricas comparativas, justificación automática y conclusiones para ayudarte a elegir el mejor modelo.
+    """)
+
+    # Selección de target y métricas
+    target_col = st.session_state.get("target_col_global")
+    if not target_col or target_col not in df.columns:
+        target_col = st.selectbox("Selecciona la variable objetivo (clase)", [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])], key="target_comp")
+        st.session_state["target_col_global"] = target_col
+    else:
+        st.info(f"Variable objetivo: {target_col}")
+
+    metricas_disp = ["accuracy", "f1_macro", "balanced_accuracy"]
+    metrica = st.selectbox("Métrica principal para comparar", metricas_disp, index=0, key="metrica_comp")
+    pca_var = st.slider("% de varianza explicada por PCA", min_value=80, max_value=100, value=95, step=1, key="pca_var_comp")
+
+    # Botón para comparar
+    if st.button("🚀 Comparar modelos automáticamente", key="btn_comparar_modelos"):
+        with st.spinner("Entrenando y evaluando modelos..."):
+            # Preparar datos
+            y = df[target_col]
+            feature_cols = [c for c in df.columns if c != target_col and pd.api.types.is_numeric_dtype(df[c])]
+            X = df[feature_cols]
+            # Imputar nulos si hay
+            if X.isnull().sum().sum() > 0:
+                st.warning("Se imputan nulos con la media para la comparación.")
+                X = X.fillna(X.mean())
+            # Escalar
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            # PCA
+            pca = PCA(n_components=min(len(feature_cols), X.shape[0]-1))
+            X_pca = pca.fit_transform(X_scaled)
+            var_cumsum = np.cumsum(pca.explained_variance_ratio_)*100
+            n_comp = np.argmax(var_cumsum >= pca_var) + 1
+            X_pca_final = X_pca[:, :n_comp]
+
+            # Modelos a comparar
+            modelos = {
+                "LDA": LDA(),
+                "QDA": QDA(),
+                "Bayes Ingenuo": GaussianNB(),
+                "SVM Linear": SVC(kernel="linear", probability=True, random_state=42),
+                "SVM RBF": SVC(kernel="rbf", probability=True, random_state=42)
+            }
+
+            resultados = []
+            for nombre, modelo in modelos.items():
+                # Sin PCA
+                try:
+                    scores = cross_val_score(modelo, X_scaled, y, cv=5, scoring=metrica)
+                    resultados.append({
+                        "Modelo": nombre,
+                        "PCA": "No",
+                        "Métrica": scores.mean(),
+                        "Std": scores.std()
+                    })
+                except Exception as e:
+                    resultados.append({
+                        "Modelo": nombre,
+                        "PCA": "No",
+                        "Métrica": np.nan,
+                        "Std": np.nan
+                    })
+                # Con PCA
+                try:
+                    scores_pca = cross_val_score(modelo, X_pca_final, y, cv=5, scoring=metrica)
+                    resultados.append({
+                        "Modelo": nombre,
+                        "PCA": "Sí",
+                        "Métrica": scores_pca.mean(),
+                        "Std": scores_pca.std()
+                    })
+                except Exception as e:
+                    resultados.append({
+                        "Modelo": nombre,
+                        "PCA": "Sí",
+                        "Métrica": np.nan,
+                        "Std": np.nan
+                    })
+
+            df_res = pd.DataFrame(resultados)
+            st.subheader("📊 Resultados comparativos")
+            st.dataframe(df_res.pivot(index="Modelo", columns="PCA", values="Métrica"), use_container_width=True)
+
+            # Gráfico resumen
+            fig = px.bar(df_res, x="Modelo", y="Métrica", color="PCA", barmode="group", error_y="Std",
+                         title=f"Comparación de modelos ({metrica})", labels={"Métrica": metrica.capitalize()})
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Justificación automática (esqueleto)
+            st.subheader("🧠 Justificación y observaciones")
+            mejor = df_res.sort_values("Métrica", ascending=False).iloc[0]
+            st.write(f"El mejor modelo según la métrica seleccionada es **{mejor['Modelo']}** {'con PCA' if mejor['PCA']=='Sí' else 'sin PCA'}, con un valor de {mejor['Métrica']:.3f}.")
+            st.write("- Si PCA mejora el rendimiento, probablemente hay redundancia o ruido en las variables.")
+            st.write("- Si SVM destaca, puede indicar fronteras no lineales. Si LDA/QDA, las clases pueden ser linealmente separables.")
+            st.write("- Si Bayes Ingenuo es competitivo, las variables pueden ser casi independientes.")
+            st.write("- Observa la desviación estándar: valores altos indican inestabilidad o sensibilidad a la partición.")
+
+            # Conclusión automática (esqueleto)
+            st.subheader("✅ Conclusión y recomendación")
+            st.write(f"Se recomienda usar **{mejor['Modelo']}** {'con PCA' if mejor['PCA']=='Sí' else 'sin PCA'} para este dataset, según la métrica seleccionada. Considera revisar los supuestos teóricos y la interpretabilidad antes de decidir el modelo final.")
+
+            st.info("Puedes explorar los detalles de cada modelo en sus respectivas vistas del menú para ver matrices de confusión, curvas ROC y más.")
 
 elif df is not None:
 
