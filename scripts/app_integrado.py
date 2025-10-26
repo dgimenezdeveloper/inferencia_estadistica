@@ -1841,7 +1841,7 @@ if analisis == "Regresión Logística" and df is not None:
                 penalty = 'l1'
                 solver = 'saga'  # saga soporta l1
             else:  # Sin regularización
-                penalty = 'none'
+                penalty = None
                 solver = 'lbfgs'
             
             # Control de C (inverso de lambda de regularización)
@@ -1853,7 +1853,7 @@ if analisis == "Regresión Logística" and df is not None:
                 )
                 st.caption(f"C={C_value:.3f} → {'Regularización fuerte' if C_value < 0.1 else 'Regularización moderada' if C_value < 10 else 'Regularización débil'}")
             else:
-                C_value = 1.0  # No importa si penalty='none'
+                C_value = 1.0  # No importa si penalty=None
             
             # Escalado
             from sklearn.preprocessing import StandardScaler
@@ -1866,6 +1866,15 @@ if analisis == "Regresión Logística" and df is not None:
                 st.info(f"Validación cruzada con {k_folds} folds: el modelo se entrena y evalúa {k_folds} veces con diferentes particiones.")
                 from sklearn.model_selection import cross_val_score
                 model = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, penalty=penalty, C=C_value)
+                # Si penalty es None, no lo pasamos como argumento (usa default)
+                if penalty is None:
+                    model = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, C=C_value)
+                else:
+                    model = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, penalty=penalty, C=C_value)
+                if penalty is None:
+                    model = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, C=C_value)
+                else:
+                    model = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, penalty=penalty, C=C_value)
                 accs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='accuracy')
                 precs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='precision_weighted')
                 recs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='recall_weighted')
@@ -1919,20 +1928,29 @@ if analisis == "Regresión Logística" and df is not None:
                     
                     comparison_results = []
                     reg_configs = [
-                        ("Sin regularización", "none", "lbfgs", 1.0),
+                        ("Sin regularización", None, "lbfgs", 1.0),
                         ("L2 (Ridge)", "l2", "lbfgs", C_value),
                         ("L1 (Lasso)", "l1", "saga", C_value)
                     ]
                     
                     for reg_name, reg_penalty, reg_solver, reg_C in reg_configs:
-                        model_comp = LogisticRegression(
-                            max_iter=500, 
-                            multi_class='auto', 
-                            solver=reg_solver, 
-                            penalty=reg_penalty, 
-                            C=reg_C,
-                            random_state=42
-                        )
+                        if reg_penalty is None:
+                            model_comp = LogisticRegression(
+                                max_iter=500, 
+                                multi_class='auto', 
+                                solver=reg_solver, 
+                                C=reg_C,
+                                random_state=42
+                            )
+                        else:
+                            model_comp = LogisticRegression(
+                                max_iter=500, 
+                                multi_class='auto', 
+                                solver=reg_solver, 
+                                penalty=reg_penalty, 
+                                C=reg_C,
+                                random_state=42
+                            )
                         model_comp.fit(X_train, y_train)
                         y_pred_comp_train = model_comp.predict(X_train)
                         y_pred_comp_test = model_comp.predict(X_test)
@@ -2140,6 +2158,41 @@ if analisis == "Regresión Logística" and df is not None:
                 st.caption("Cada columna muestra el efecto de la variable sobre la probabilidad de esa clase (vs. la clase base).")
             st.info("Un coeficiente positivo significa que al aumentar esa variable, aumenta la probabilidad de la clase indicada. Un coeficiente negativo, lo contrario. La magnitud indica la fuerza del efecto.")
             st.caption("Puedes ordenar la tabla para ver qué variables tienen mayor impacto.")
+
+            # === Ranking de importancia de variables ===
+            st.markdown("---")
+            st.subheader("Ranking de importancia de variables")
+            st.markdown("""
+            El ranking de importancia te permite identificar rápidamente qué variables tienen mayor influencia en la predicción del modelo. Se calcula usando el valor absoluto de los coeficientes:
+            - **Mayor valor absoluto = mayor importancia**
+            - Con regularización L1, algunas variables pueden tener importancia cero (eliminadas)
+            - Con L2, todas las variables suelen tener algún peso, pero los menos importantes se reducen
+            """)
+            import plotly.express as px
+            if coef.shape[0] == 1:
+                # Binaria
+                importancias = np.abs(coef[0])
+            else:
+                # Multiclase: promedio del valor absoluto entre clases
+                importancias = np.mean(np.abs(coef), axis=0)
+            df_importancia = pd.DataFrame({
+                'Variable': feature_cols,
+                'Importancia (|coef|)': importancias
+            }).sort_values('Importancia (|coef|)', ascending=False)
+            fig_imp = px.bar(
+                df_importancia,
+                x='Importancia (|coef|)',
+                y='Variable',
+                orientation='h',
+                color='Importancia (|coef|)',
+                color_continuous_scale='Blues',
+                title='Importancia relativa de cada variable',
+                labels={'Importancia (|coef|)': 'Importancia (valor absoluto del coeficiente)'}
+            )
+            fig_imp.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_imp, use_container_width=True)
+            st.info("Las variables más arriba en el gráfico son las que más influyen en la predicción. Si usas L1, las variables con barra cero han sido eliminadas por el modelo.")
+            st.caption("La regularización puede cambiar el ranking: L1 tiende a dejar solo las variables más relevantes, L2 distribuye el peso entre todas.")
             
             # === Efecto de la regularización en los coeficientes ===
             st.markdown("---")
