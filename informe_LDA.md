@@ -1,4 +1,4 @@
----
+
 # Informe de Resultados: Análisis Discriminante Lineal (LDA) sobre Rotación de Personal
 
 ## 1. Introducción

@@ -1,4 +1,4 @@
----
+
 # Informe de Resultados: Análisis Discriminante Cuadrático (QDA) sobre Rotación de Personal
 
 ## 1. Introducción

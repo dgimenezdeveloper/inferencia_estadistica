@@ -1,4 +1,4 @@
----
+
 # Informe de Resultados: Bayes Ingenuo sobre Rotación de Personal
 
 ## 1. Introducción
@@ -44,7 +44,7 @@ Bayes Ingenuo asume independencia condicional entre las variables predictoras. L
 
 ### 3.5. Curva ROC y AUC
 
-El área bajo la curva ROC (AUC = 0.842) indica una buena capacidad discriminativa del modelo, aunque inferior a QDA y ligeramente superior a LDA.
+El área bajo la curva ROC (AUC = 0.842) indica una buena capacidad discriminativa del modelo lo que significa que, en general, el modelo es capaz de distinguir entre las dos clases.
 
 ### 3.6. Predicción y probabilidades
 

@@ -19,6 +19,8 @@ Este informe presenta una comparación exhaustiva de los principales algoritmos 
   - Abandonó: 3,571 (23.8%)
 - **Desbalance:** Ratio 0.31 (moderadamente desbalanceado)
 
+- **Verificación y manejo del desbalance:** El proyecto incluye comprobaciones explícitas del balance de clases y soporte para estrategias de manejo: muestreo estratificado durante particionado, advertencias cuando el ratio es bajo, y opciones para aplicar sobremuestreo (oversampling), submuestreo (undersampling) o usar parámetros como `class_weight='balanced'` según corresponda. Estas opciones están implementadas en las herramientas y scripts de la interfaz para facilitar su uso.
+
 ### 2.3. Transformación de variables categóricas
 - **Departamento (`sales`):** One-Hot Encoding → 10 variables binarias
 - **Salario (`salary`):** Label Encoding Ordinal → 1 variable numérica (0=low, 1=medium, 2=high)
