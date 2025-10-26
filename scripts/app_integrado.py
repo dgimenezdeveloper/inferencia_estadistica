@@ -1781,21 +1781,108 @@ if analisis == "Regresión Logística" and df is not None:
             if X.isnull().values.any():
                 st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
                 X = X.fillna(X.mean())
+            # === División train/test y validación cruzada ===
+            st.markdown("---")
+            st.subheader("¿Cómo evaluar el modelo de forma realista?")
+            st.markdown("""
+            Antes de analizar los resultados, elige **cómo quieres evaluar el modelo**:
+            - **División entrenamiento/test:** Separa una parte de los datos (por ejemplo, 20%) para testear el modelo en datos no vistos.
+            - **Validación cruzada (k-fold):** El dataset se divide en k partes y el modelo se entrena y evalúa k veces, usando cada parte como test una vez.
+            """)
+            eval_mode = st.radio(
+                "Selecciona el método de evaluación:",
+                ["División entrenamiento/test", "Validación cruzada (k-fold)"],
+                index=0,
+                help="Elige si prefieres reservar un conjunto de test fijo o evaluar con k particiones distintas."
+            )
+            if eval_mode == "División entrenamiento/test":
+                test_size = st.slider(
+                    "¿Qué porcentaje de los datos reservar para test?",
+                    min_value=10, max_value=50, value=20, step=5,
+                    help="El resto de los datos se usa para entrenar el modelo."
+                )
+                st.caption("El modelo se entrena con el (100 - test)% de los datos y se evalúa con el test% restante. Así puedes ver si el modelo generaliza bien a datos nuevos.")
+                use_cv = False
+                k_folds = 5
+            else:
+                use_cv = True
+                k_folds = st.slider(
+                    "¿Cuántos folds (k) usar en la validación cruzada?",
+                    min_value=3, max_value=10, value=5,
+                    help="El dataset se divide en k partes. El modelo se entrena y evalúa k veces, cada vez usando una parte distinta como test."
+                )
+                st.caption("La validación cruzada es más robusta: todos los datos se usan para entrenar y testear, y se obtiene un promedio de métricas.")
             # Escalado
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
             X_scaled = scaler.fit_transform(X)
-            # Entrenamiento
             from sklearn.linear_model import LogisticRegression
-            model = LogisticRegression(max_iter=500, multi_class='auto', solver='lbfgs')
-            model.fit(X_scaled, y)
-            y_pred = model.predict(X_scaled)
-            from sklearn.metrics import accuracy_score, confusion_matrix
-            acc = accuracy_score(y, y_pred)
-            st.metric("Accuracy (entrenamiento)", f"{acc:.3f}")
-            st.write("#### Matriz de confusión:")
-            cm = confusion_matrix(y, y_pred)
-            st.dataframe(pd.DataFrame(cm, index=[clase_labels_global.get(c, str(c)) for c in model.classes_], columns=[clase_labels_global.get(c, str(c)) for c in model.classes_]))
+            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+            import numpy as np
+            if use_cv:
+                st.info(f"Validación cruzada con {k_folds} folds: el modelo se entrena y evalúa {k_folds} veces con diferentes particiones.")
+                from sklearn.model_selection import cross_val_score
+                model = LogisticRegression(max_iter=500, multi_class='auto', solver='lbfgs')
+                accs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='accuracy')
+                precs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='precision_weighted')
+                recs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='recall_weighted')
+                f1s = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='f1_weighted')
+                st.write("### Métricas promedio (validación cruzada)")
+                st.dataframe({
+                    'Accuracy': [f"{accs.mean():.3f} ± {accs.std():.3f}"],
+                    'Precision': [f"{precs.mean():.3f} ± {precs.std():.3f}"],
+                    'Recall': [f"{recs.mean():.3f} ± {recs.std():.3f}"],
+                    'F1': [f"{f1s.mean():.3f} ± {f1s.std():.3f}"]
+                })
+                st.caption("Las métricas muestran el promedio y la desviación estándar entre los folds. Valores similares indican estabilidad. La validación cruzada es útil cuando el dataset es pequeño o se quiere una evaluación más robusta.")
+                # Entrenar modelo final en todo el dataset para predicción interactiva y coeficientes
+                model.fit(X_scaled, y)
+                y_pred = model.predict(X_scaled)
+            else:
+                from sklearn.model_selection import train_test_split
+                X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=test_size/100, random_state=42, stratify=y)
+                model = LogisticRegression(max_iter=500, multi_class='auto', solver='lbfgs')
+                model.fit(X_train, y_train)
+                y_pred_train = model.predict(X_train)
+                y_pred_test = model.predict(X_test)
+                # Métricas
+                acc_train = accuracy_score(y_train, y_pred_train)
+                acc_test = accuracy_score(y_test, y_pred_test)
+                prec_train = precision_score(y_train, y_pred_train, average='weighted', zero_division=0)
+                prec_test = precision_score(y_test, y_pred_test, average='weighted', zero_division=0)
+                rec_train = recall_score(y_train, y_pred_train, average='weighted', zero_division=0)
+                rec_test = recall_score(y_test, y_pred_test, average='weighted', zero_division=0)
+                f1_train = f1_score(y_train, y_pred_train, average='weighted', zero_division=0)
+                f1_test = f1_score(y_test, y_pred_test, average='weighted', zero_division=0)
+                st.write("### Métricas de entrenamiento y test")
+                st.dataframe({
+                    'Conjunto': ['Entrenamiento', 'Test'],
+                    'Accuracy': [f"{acc_train:.3f}", f"{acc_test:.3f}"],
+                    'Precision': [f"{prec_train:.3f}", f"{prec_test:.3f}"],
+                    'Recall': [f"{rec_train:.3f}", f"{rec_test:.3f}"],
+                    'F1': [f"{f1_train:.3f}", f"{f1_test:.3f}"]
+                })
+                st.caption("Compara las métricas en entrenamiento y test. Si hay mucha diferencia, puede haber sobreajuste. La división test es útil para datasets grandes o para simular el rendimiento en datos realmente nuevos.")
+                # Matriz de confusión de test
+                st.write("#### Matriz de confusión (test):")
+                cm = confusion_matrix(y_test, y_pred_test)
+                st.dataframe(pd.DataFrame(cm, index=[clase_labels_global.get(c, str(c)) for c in model.classes_], columns=[clase_labels_global.get(c, str(c)) for c in model.classes_]))
+            # Si no hay validación cruzada, mostrar matriz de confusión de entrenamiento también
+            if not use_cv:
+                st.write("#### Matriz de confusión (entrenamiento):")
+                cm_train = confusion_matrix(y_train, y_pred_train)
+                st.dataframe(pd.DataFrame(cm_train, index=[clase_labels_global.get(c, str(c)) for c in model.classes_], columns=[clase_labels_global.get(c, str(c)) for c in model.classes_]))
+            st.markdown("""
+            **¿Qué significan estas métricas?**
+            - **Accuracy:** Proporción de aciertos totales.
+            - **Precision:** Qué proporción de las predicciones positivas fueron correctas.
+            - **Recall:** Qué proporción de los positivos reales fueron detectados.
+            - **F1:** Media armónica de precision y recall (balance entre ambos).
+            
+            **¿Por qué usar test o validación cruzada?**
+            - Permite estimar el rendimiento real del modelo en datos nuevos.
+            - Ayuda a detectar sobreajuste (cuando el modelo memoriza el entrenamiento pero falla en test).
+            """)
             # === Interpretación de coeficientes ===
             st.markdown("---")
             st.subheader("Interpretación de coeficientes")
