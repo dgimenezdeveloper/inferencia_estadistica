@@ -1939,6 +1939,78 @@ if analisis == "Regresión Logística" and df is not None:
                 """, unsafe_allow_html=True)
             else:
                 st.warning("No se puede calcular la curva ROC: se requiere al menos dos clases.")
+            
+            # === Visualización de frontera de decisión (solo si hay 2 variables) ===
+            if len(feature_cols) == 2:
+                st.markdown("---")
+                st.subheader("🗺️ Visualización de la frontera de decisión")
+                st.markdown("""
+                Cuando usas solo 2 variables, puedes ver gráficamente cómo el modelo separa las clases en el espacio de atributos. 
+                Los puntos son las observaciones reales y las regiones de color muestran la predicción del modelo en cada zona del espacio.
+                """)
+                # Crear mesh para visualización
+                h = 0.02
+                x_min, x_max = X_scaled[:, 0].min() - 1, X_scaled[:, 0].max() + 1
+                y_min, y_max = X_scaled[:, 1].min() - 1, X_scaled[:, 1].max() + 1
+                xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
+                Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+                # Convertir Z a numérico si es categórico (asegurar 1D)
+                from sklearn.preprocessing import LabelEncoder
+                le = LabelEncoder()
+                le.fit(y)
+                Z_num = le.transform(Z.ravel()).reshape(xx.shape)
+                # Graficar
+                fig_boundary = go.Figure()
+                # Contorno de fondo
+                fig_boundary.add_trace(go.Contour(
+                    x=np.arange(x_min, x_max, h),
+                    y=np.arange(y_min, y_max, h),
+                    z=Z_num,
+                    showscale=False,
+                    colorscale='RdYlBu',
+                    opacity=0.3,
+                    hoverinfo='skip'
+                ))
+                # Agregar puntos de datos
+                if use_cv:
+                    X_plot = X_scaled
+                    y_plot = y
+                else:
+                    X_plot = X_test
+                    y_plot = y_test
+                colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
+                for i, class_val in enumerate(np.unique(y_plot)):
+                    mask = y_plot == class_val
+                    class_name = clase_labels_global.get(class_val, str(class_val))
+                    fig_boundary.add_trace(go.Scatter(
+                        x=X_plot[mask, 0],
+                        y=X_plot[mask, 1],
+                        mode='markers',
+                        name=class_name,
+                        marker=dict(
+                            color=colors[i % len(colors)],
+                            size=8,
+                            line=dict(width=1, color='white')
+                        )
+                    ))
+                fig_boundary.update_layout(
+                    title=f"Frontera de decisión: {feature_cols[0]} vs {feature_cols[1]}",
+                    xaxis_title=f"{feature_cols[0]} (escalado)",
+                    yaxis_title=f"{feature_cols[1]} (escalado)",
+                    showlegend=True
+                )
+                st.plotly_chart(fig_boundary, use_container_width=True)
+                st.markdown("""
+                <div style='background:#23293a;padding:1em;border-radius:8px;'>
+                <b>¿Qué ves aquí?</b><br>
+                - <b>Regiones de color:</b> Muestran la predicción del modelo en cada zona del espacio.<br>
+                - <b>Puntos:</b> Son las observaciones reales del conjunto de datos (coloreadas por su clase verdadera).<br>
+                - <b>Interpretación:</b> Si los puntos de cada clase están bien agrupados en su región correspondiente, el modelo separa bien. Si hay muchos puntos en la región equivocada, hay errores de clasificación.<br>
+                </div>
+                """, unsafe_allow_html=True)
+            elif len(feature_cols) > 2:
+                st.info("💡 Para visualizar la frontera de decisión, selecciona exactamente 2 variables en la sección de atributos.")
+            
             # === Interpretación de coeficientes ===
             st.markdown("---")
             st.subheader("Interpretación de coeficientes")
