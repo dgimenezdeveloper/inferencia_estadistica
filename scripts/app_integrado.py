@@ -1872,17 +1872,73 @@ if analisis == "Regresión Logística" and df is not None:
                 st.write("#### Matriz de confusión (entrenamiento):")
                 cm_train = confusion_matrix(y_train, y_pred_train)
                 st.dataframe(pd.DataFrame(cm_train, index=[clase_labels_global.get(c, str(c)) for c in model.classes_], columns=[clase_labels_global.get(c, str(c)) for c in model.classes_]))
+
+            # === Curva ROC y AUC ===
+            st.markdown("---")
+            st.subheader("Curva ROC y AUC: capacidad discriminativa del modelo")
             st.markdown("""
-            **¿Qué significan estas métricas?**
-            - **Accuracy:** Proporción de aciertos totales.
-            - **Precision:** Qué proporción de las predicciones positivas fueron correctas.
-            - **Recall:** Qué proporción de los positivos reales fueron detectados.
-            - **F1:** Media armónica de precision y recall (balance entre ambos).
-            
-            **¿Por qué usar test o validación cruzada?**
-            - Permite estimar el rendimiento real del modelo en datos nuevos.
-            - Ayuda a detectar sobreajuste (cuando el modelo memoriza el entrenamiento pero falla en test).
+            La curva ROC (Receiver Operating Characteristic) muestra la relación entre la tasa de verdaderos positivos (TPR) y la tasa de falsos positivos (FPR) para distintos umbrales de decisión. El área bajo la curva (AUC) mide la capacidad del modelo para distinguir entre clases:
+            - **AUC = 1.0:** Separación perfecta.
+            - **AUC = 0.5:** Sin capacidad discriminativa (aleatorio).
+            - **Cuanto mayor el AUC, mejor el modelo para distinguir clases.**
             """)
+            import plotly.graph_objects as go
+            from sklearn.preprocessing import label_binarize
+            from sklearn.metrics import roc_curve, auc
+            y_labels = model.classes_
+            n_classes = len(y_labels)
+            # Usar probabilidades y verdaderos según modo de evaluación
+            if use_cv:
+                # En CV, usar todo el dataset (no hay test explícito)
+                y_true = y
+                y_score = model.predict_proba(X_scaled)
+            else:
+                y_true = y_test
+                y_score = model.predict_proba(X_test)
+            if n_classes == 2:
+                # Binario: usar la probabilidad de la clase positiva
+                fpr, tpr, _ = roc_curve(y_true, y_score[:, 1], pos_label=y_labels[1])
+                auc_val = auc(fpr, tpr)
+                fig_roc = go.Figure()
+                fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'ROC (AUC={auc_val:.3f})', line=dict(width=2)))
+                fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Aleatorio', line=dict(dash='dash', color='gray')))
+                fig_roc.update_layout(title="Curva ROC (binaria)", xaxis_title="Tasa de Falsos Positivos (FPR)", yaxis_title="Tasa de Verdaderos Positivos (TPR)", width=600, height=400)
+                st.plotly_chart(fig_roc, use_container_width=True)
+                st.info(f"AUC = {auc_val:.3f}. Un valor cercano a 1 indica excelente capacidad de discriminación.")
+                st.markdown("""
+                <div style='background:#23293a;padding:1em;border-radius:8px;'>
+                <b>¿Qué ves aquí?</b><br>
+                - <b>Curva ROC binaria:</b> Muestra la capacidad del modelo para distinguir entre las dos clases posibles.<br>
+                - <b>AUC:</b> Área bajo la curva. Si es cercano a 1, el modelo distingue muy bien; si es 0.5, es como adivinar.<br>
+                - <b>Interpretación:</b> Cuanto más arriba y a la izquierda esté la curva, mejor.<br>
+                </div>
+                """, unsafe_allow_html=True)
+            elif n_classes > 2:
+                # Multiclase: one-vs-rest
+                y_bin = label_binarize(y_true, classes=y_labels)
+                fig_roc = go.Figure()
+                aucs = []
+                for i, c in enumerate(y_labels):
+                    fpr, tpr, _ = roc_curve(y_bin[:, i], y_score[:, i])
+                    auc_val = auc(fpr, tpr)
+                    aucs.append(auc_val)
+                    class_name = clase_labels_global.get(c, str(c))
+                    fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'{class_name} (AUC={auc_val:.2f})', line=dict(width=2)))
+                fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Aleatorio', line=dict(dash='dash', color='gray')))
+                fig_roc.update_layout(title="Curvas ROC (one-vs-rest, multiclase)", xaxis_title="Tasa de Falsos Positivos (FPR)", yaxis_title="Tasa de Verdaderos Positivos (TPR)", width=700, height=450)
+                st.plotly_chart(fig_roc, use_container_width=True)
+                st.info(f"AUC promedio: {np.mean(aucs):.3f}. Cada curva muestra la capacidad del modelo para distinguir una clase frente al resto.")
+                st.markdown(f"""
+                <div style='background:#23293a;padding:1em;border-radius:8px;'>
+                <b>¿Qué ves aquí?</b><br>
+                - <b>Curvas ROC multiclase (one-vs-rest):</b> Para cada clase, se calcula una curva considerando esa clase como positiva y las demás como negativas.<br>
+                - <b>AUC de cada clase:</b> Indica qué tan bien el modelo distingue esa clase frente a las otras.<br>
+                - <b>AUC promedio:</b> {np.mean(aucs):.3f}.<br>
+                - <b>Interpretación:</b> Curvas más arriba y a la izquierda indican mejor discriminación. Si varias curvas están cerca de la diagonal, el modelo no distingue bien esas clases.<br>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.warning("No se puede calcular la curva ROC: se requiere al menos dos clases.")
             # === Interpretación de coeficientes ===
             st.markdown("---")
             st.subheader("Interpretación de coeficientes")
