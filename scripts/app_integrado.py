@@ -102,6 +102,8 @@ from textos_ayuda import (
 )
 from visualizaciones import plot_metricas_por_clase
 ###############################################################
+import streamlit as st
+st.set_page_config(layout="wide")
 # === Definición de temas y selección antes de cualquier uso de 'colores' ===
 COLORES_TEMA = {
     "Oscuro": {
@@ -472,7 +474,9 @@ analisis = st.sidebar.selectbox(
         "Exploración de datos",
         "Discriminante (LDA/QDA)",
         "Bayes Ingenuo",
+        "Regresión Logística",
         "Reducción de dimensiones (PCA)",
+        "K-means (Clustering)",
         "SVM (Máquinas de Vectores de Soporte)",
         "Comparativa de Modelos"
     ]
@@ -1744,6 +1748,190 @@ elif analisis == "Comparativa de Modelos" and df is not None:
             st.write(f"Se recomienda usar **{mejor['Modelo']}** {'con PCA' if mejor['PCA']=='Sí' else 'sin PCA'} para este dataset, según la métrica seleccionada. Considera revisar los supuestos teóricos y la interpretabilidad antes de decidir el modelo final.")
 
             st.info("Puedes explorar los detalles de cada modelo en sus respectivas vistas del menú para ver matrices de confusión, curvas ROC y más.")
+
+
+# === VISTA REGRESIÓN LOGÍSTICA ===
+if analisis == "Regresión Logística" and df is not None:
+    st.title("Regresión Logística (Clasificación Supervisada)")
+    st.markdown("""
+    La regresión logística es un modelo supervisado para clasificación binaria o multiclase. Permite predecir la probabilidad de pertenencia a cada clase y es interpretable.
+    """)
+    # Selección de variables
+    columnas = df.columns.tolist()
+    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
+    target_col = st.session_state.get("target_col_global")
+    clase_labels_global = st.session_state.get("clase_labels_global", {})
+    if not target_col or target_col not in df.columns:
+        st.error("No hay columna de clase válida seleccionada. Elige una columna de clase en el panel lateral.")
+    else:
+        st.write("#### Valores únicos de la clase:")
+        conteo_clase = df[target_col].value_counts().sort_index()
+        st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global.get(v, str(v)) for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
+        feature_cols = st.multiselect(
+            "Selecciona las columnas de atributos (features):",
+            [c for c in num_cols if c != target_col],
+            default=[c for c in num_cols if c != target_col],
+            key="features_logreg"
+        )
+
+        if feature_cols:
+            X = df[feature_cols]
+            y = df[target_col]
+            # Manejo de nulos
+            if X.isnull().values.any():
+                st.warning("Se encontraron valores faltantes en los atributos. Imputando con la media de cada columna...")
+                X = X.fillna(X.mean())
+            # Escalado
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            # Entrenamiento
+            from sklearn.linear_model import LogisticRegression
+            model = LogisticRegression(max_iter=500, multi_class='auto', solver='lbfgs')
+            model.fit(X_scaled, y)
+            y_pred = model.predict(X_scaled)
+            from sklearn.metrics import accuracy_score, confusion_matrix
+            acc = accuracy_score(y, y_pred)
+            st.metric("Accuracy (entrenamiento)", f"{acc:.3f}")
+            st.write("#### Matriz de confusión:")
+            cm = confusion_matrix(y, y_pred)
+            st.dataframe(pd.DataFrame(cm, index=[clase_labels_global.get(c, str(c)) for c in model.classes_], columns=[clase_labels_global.get(c, str(c)) for c in model.classes_]))
+            # === Interpretación de coeficientes ===
+            st.markdown("---")
+            st.subheader("Interpretación de coeficientes")
+            st.markdown("""
+            En regresión logística, cada coeficiente indica cuánto influye la variable correspondiente en la probabilidad de pertenecer a la clase positiva (o a cada clase, si es multiclase):
+            - **Signo positivo:** Aumentar la variable aumenta la probabilidad de la clase positiva.
+            - **Signo negativo:** Aumentar la variable disminuye la probabilidad de la clase positiva.
+            - **Magnitud:** Cuanto mayor el valor absoluto, mayor el impacto.
+            """)
+            import numpy as np
+            coef = model.coef_
+            if coef.shape[0] == 1:
+                # Binaria
+                df_coef = pd.DataFrame({
+                    'Variable': feature_cols,
+                    'Coeficiente': coef[0]
+                })
+                df_coef['Impacto'] = np.where(df_coef['Coeficiente'] > 0, '↑ Aumenta prob. clase 1', '↓ Disminuye prob. clase 1')
+                st.dataframe(df_coef.set_index('Variable').style.format({'Coeficiente': '{:.3f}'}))
+            else:
+                # Multiclase
+                df_coef = pd.DataFrame(coef.T, columns=[f"Clase {clase_labels_global.get(c, str(c))}" for c in model.classes_], index=feature_cols)
+                st.dataframe(df_coef.style.format('{:.3f}'))
+                st.caption("Cada columna muestra el efecto de la variable sobre la probabilidad de esa clase (vs. la clase base).")
+            st.info("Un coeficiente positivo significa que al aumentar esa variable, aumenta la probabilidad de la clase indicada. Un coeficiente negativo, lo contrario. La magnitud indica la fuerza del efecto.")
+            st.caption("Puedes ordenar la tabla para ver qué variables tienen mayor impacto.")
+            st.caption("Esta es una vista inicial. Puedes complejizarla luego agregando validación cruzada, regularización, interpretación de coeficientes, etc.")
+
+            # === Predicción interactiva ===
+            st.markdown("---")
+            st.subheader("Predicción interactiva y probabilidades por clase")
+            st.markdown("""
+            Ingresa valores para cada variable y obtén la predicción del modelo y las probabilidades asociadas a cada clase.
+            """)
+            col_inputs = st.columns(len(feature_cols))
+            input_vals = []
+            for i, col in enumerate(feature_cols):
+                minv = float(df[col].min())
+                maxv = float(df[col].max())
+                meanv = float(df[col].mean())
+                val = col_inputs[i].number_input(f"{col}", min_value=minv, max_value=maxv, value=meanv, key=f"input_{col}_logreg")
+                input_vals.append(val)
+            if st.button("Predecir", key="btn_predecir_logreg"):
+                # Escalar igual que entrenamiento
+                input_array = np.array(input_vals).reshape(1, -1)
+                input_scaled = scaler.transform(input_array)
+                pred = model.predict(input_scaled)[0]
+                probas = model.predict_proba(input_scaled)[0]
+                st.success(f"Predicción: {clase_labels_global.get(pred, str(pred))}")
+                st.write("#### Probabilidades por clase:")
+                class_names = [clase_labels_global.get(c, str(c)) for c in model.classes_]
+                df_proba = pd.DataFrame({
+                    'Clase': class_names,
+                    'Probabilidad': [f"{p:.3f}" for p in probas]
+                })
+                st.dataframe(df_proba)
+                import plotly.graph_objects as go
+                fig_proba = go.Figure(go.Bar(
+                    x=class_names,
+                    y=probas,
+                    marker_color='royalblue',
+                    text=[f"{p:.2%}" for p in probas],
+                    textposition='auto'))
+                fig_proba.update_layout(
+                    title="Probabilidad de pertenencia a cada clase",
+                    xaxis_title="Clase",
+                    yaxis_title="Probabilidad",
+                    yaxis=dict(range=[0,1]),
+                    width=600, height=400
+                )
+                st.plotly_chart(fig_proba, use_container_width=True)
+                st.caption("La clase con mayor probabilidad es la predicción del modelo. Si varias clases tienen probabilidades similares, el modelo está menos seguro.")
+        else:
+            st.info("Selecciona al menos una variable numérica para entrenar el modelo.")
+
+# === VISTA K-MEANS CLUSTERING ===
+elif analisis == "K-means (Clustering)" and df is not None:
+    st.title("K-means: Agrupamiento no supervisado")
+    st.markdown("""
+    K-means es un algoritmo de aprendizaje no supervisado que agrupa los datos en k clusters según su similitud. No requiere etiquetas de clase.
+    """)
+    columnas = df.columns.tolist()
+    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
+    feature_cols = st.multiselect(
+        "Selecciona las columnas numéricas para clustering:",
+        num_cols,
+        default=num_cols,
+        key="features_kmeans"
+    )
+    if feature_cols and len(feature_cols) >= 2:
+        X = df[feature_cols]
+        # Manejo de nulos
+        if X.isnull().values.any():
+            st.warning("Se encontraron valores faltantes. Imputando con la media...")
+            X = X.fillna(X.mean())
+        # Escalado
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        # Selección de k
+        k = st.slider("Selecciona el número de clusters (k)", min_value=2, max_value=10, value=3, step=1)
+        # Entrenamiento
+        from sklearn.cluster import KMeans
+        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
+        clusters = kmeans.fit_predict(X_scaled)
+        st.write(f"#### Asignación de clusters (primeras 10 filas):")
+        st.dataframe(pd.DataFrame({"Cluster": clusters[:10]}, index=df.index[:10]))
+        # Visualización 2D si hay al menos 2 features
+        import plotly.express as px
+        if len(feature_cols) >= 2:
+            fig = px.scatter(
+                x=X[feature_cols[0]], y=X[feature_cols[1]], color=clusters.astype(str),
+                labels={"x": feature_cols[0], "y": feature_cols[1], "color": "Cluster"},
+                title="Visualización de clusters (2 primeras variables)"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        # Método del codo
+        st.markdown("---")
+        st.subheader("Método del codo para elegir k óptimo")
+        inertia = []
+        ks = range(1, 11)
+        for ki in ks:
+            km = KMeans(n_clusters=ki, n_init=10, random_state=42)
+            km.fit(X_scaled)
+            inertia.append(km.inertia_)
+        import matplotlib.pyplot as plt
+        fig2, ax2 = plt.subplots()
+        ax2.plot(ks, inertia, '-o')
+        ax2.set_xlabel('k (número de clusters)')
+        ax2.set_ylabel('Inercia (WCSS)')
+        ax2.set_title('Método del codo')
+        st.pyplot(fig2)
+        st.caption("Elige el k donde la curva deja de bajar abruptamente (el 'codo').")
+        st.info("Esta es una vista inicial. Puedes agregar silhouette, visualización 3D, interpretación, etc. más adelante.")
+    else:
+        st.info("Selecciona al menos dos variables numéricas para aplicar k-means.")
 
 elif df is not None:
 
