@@ -1812,6 +1812,49 @@ if analisis == "Regresión Logística" and df is not None:
                     help="El dataset se divide en k partes. El modelo se entrena y evalúa k veces, cada vez usando una parte distinta como test."
                 )
                 st.caption("La validación cruzada es más robusta: todos los datos se usan para entrenar y testear, y se obtiene un promedio de métricas.")
+            # === Opciones de regularización ===
+            st.markdown("---")
+            st.subheader("Regularización: controlar la complejidad del modelo")
+            st.markdown("""
+            La regularización penaliza coeficientes muy grandes para evitar sobreajuste. Hay tres opciones:
+            - **Sin regularización (None):** Los coeficientes pueden tomar cualquier valor. Puede causar sobreajuste si hay muchas variables o ruido.
+            - **L1 (Lasso):** Penaliza la suma de valores absolutos de los coeficientes. Tiende a eliminar variables irrelevantes (coeficientes = 0). Útil para selección de variables.
+            - **L2 (Ridge):** Penaliza la suma de cuadrados de los coeficientes. Mantiene todas las variables, pero reduce su influencia. Más estable numéricamente.
+            
+            **¿Cuándo usar cada tipo?**
+            - **L1:** Cuando sospechás que muchas variables son irrelevantes y querés un modelo interpretable y simple.
+            - **L2:** Cuando todas las variables pueden ser relevantes, pero querés evitar que tengan demasiada influencia individual.
+            - **Sin regularización:** Solo si tenés pocos datos o pocas variables, y confiás en que no hay sobreajuste.
+            """)
+            
+            penalty_option = st.selectbox(
+                "Selecciona el tipo de regularización:",
+                ["L2 (Ridge)", "L1 (Lasso)", "Sin regularización (None)"],
+                index=0,
+                help="L2 es la opción estándar y más estable. L1 es útil para selección de variables."
+            )
+            
+            if penalty_option == "L2 (Ridge)":
+                penalty = 'l2'
+                solver = 'lbfgs'
+            elif penalty_option == "L1 (Lasso)":
+                penalty = 'l1'
+                solver = 'saga'  # saga soporta l1
+            else:  # Sin regularización
+                penalty = 'none'
+                solver = 'lbfgs'
+            
+            # Control de C (inverso de lambda de regularización)
+            if penalty != 'none':
+                C_value = st.slider(
+                    "Fuerza de regularización (C):",
+                    min_value=0.001, max_value=100.0, value=1.0, step=0.1,
+                    help="C es el inverso de la fuerza de regularización. Valores pequeños = más regularización (más penalización). Valores grandes = menos regularización (más libertad)."
+                )
+                st.caption(f"C={C_value:.3f} → {'Regularización fuerte' if C_value < 0.1 else 'Regularización moderada' if C_value < 10 else 'Regularización débil'}")
+            else:
+                C_value = 1.0  # No importa si penalty='none'
+            
             # Escalado
             from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
@@ -1822,7 +1865,7 @@ if analisis == "Regresión Logística" and df is not None:
             if use_cv:
                 st.info(f"Validación cruzada con {k_folds} folds: el modelo se entrena y evalúa {k_folds} veces con diferentes particiones.")
                 from sklearn.model_selection import cross_val_score
-                model = LogisticRegression(max_iter=500, multi_class='auto', solver='lbfgs')
+                model = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, penalty=penalty, C=C_value)
                 accs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='accuracy')
                 precs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='precision_weighted')
                 recs = cross_val_score(model, X_scaled, y, cv=k_folds, scoring='recall_weighted')
@@ -1841,7 +1884,7 @@ if analisis == "Regresión Logística" and df is not None:
             else:
                 from sklearn.model_selection import train_test_split
                 X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=test_size/100, random_state=42, stratify=y)
-                model = LogisticRegression(max_iter=500, multi_class='auto', solver='lbfgs')
+                model = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, penalty=penalty, C=C_value)
                 model.fit(X_train, y_train)
                 y_pred_train = model.predict(X_train)
                 y_pred_test = model.predict(X_test)
@@ -1867,6 +1910,66 @@ if analisis == "Regresión Logística" and df is not None:
                 st.write("#### Matriz de confusión (test):")
                 cm = confusion_matrix(y_test, y_pred_test)
                 st.dataframe(pd.DataFrame(cm, index=[clase_labels_global.get(c, str(c)) for c in model.classes_], columns=[clase_labels_global.get(c, str(c)) for c in model.classes_]))
+                
+                # === Comparación de regularizaciones ===
+                with st.expander("🔍 Comparar el efecto de diferentes regularizaciones en el rendimiento"):
+                    st.markdown("""
+                    Veamos cómo cambian las métricas con diferentes tipos de regularización:
+                    """)
+                    
+                    comparison_results = []
+                    reg_configs = [
+                        ("Sin regularización", "none", "lbfgs", 1.0),
+                        ("L2 (Ridge)", "l2", "lbfgs", C_value),
+                        ("L1 (Lasso)", "l1", "saga", C_value)
+                    ]
+                    
+                    for reg_name, reg_penalty, reg_solver, reg_C in reg_configs:
+                        model_comp = LogisticRegression(
+                            max_iter=500, 
+                            multi_class='auto', 
+                            solver=reg_solver, 
+                            penalty=reg_penalty, 
+                            C=reg_C,
+                            random_state=42
+                        )
+                        model_comp.fit(X_train, y_train)
+                        y_pred_comp_train = model_comp.predict(X_train)
+                        y_pred_comp_test = model_comp.predict(X_test)
+                        
+                        acc_comp_train = accuracy_score(y_train, y_pred_comp_train)
+                        acc_comp_test = accuracy_score(y_test, y_pred_comp_test)
+                        f1_comp_train = f1_score(y_train, y_pred_comp_train, average='weighted', zero_division=0)
+                        f1_comp_test = f1_score(y_test, y_pred_comp_test, average='weighted', zero_division=0)
+                        
+                        # Calcular número de variables activas (coeficientes no nulos)
+                        if model_comp.coef_.shape[0] == 1:
+                            n_active = np.sum(np.abs(model_comp.coef_[0]) > 1e-5)
+                        else:
+                            n_active = np.sum(np.any(np.abs(model_comp.coef_) > 1e-5, axis=0))
+                        
+                        comparison_results.append({
+                            'Regularización': reg_name,
+                            'Acc Train': f"{acc_comp_train:.3f}",
+                            'Acc Test': f"{acc_comp_test:.3f}",
+                            'F1 Train': f"{f1_comp_train:.3f}",
+                            'F1 Test': f"{f1_comp_test:.3f}",
+                            'Variables activas': f"{n_active}/{len(feature_cols)}",
+                            'Sobreajuste': f"{abs(acc_comp_train - acc_comp_test):.3f}"
+                        })
+                    
+                    df_comparison = pd.DataFrame(comparison_results)
+                    st.dataframe(df_comparison, hide_index=True, use_container_width=True)
+                    
+                    st.markdown("""
+                    <div style='background:#23293a;padding:1em;border-radius:8px;'>
+                    <b>¿Cómo interpretar esta tabla?</b><br>
+                    - <b>Acc/F1 Train vs Test:</b> Si train es mucho mayor que test, hay sobreajuste.<br>
+                    - <b>Variables activas:</b> L1 puede eliminar variables. L2 y sin regularización usan todas.<br>
+                    - <b>Sobreajuste:</b> Diferencia entre accuracy de train y test. Menor = mejor generalización.<br>
+                    - <b>Recomendación:</b> Busca el equilibrio entre buen rendimiento en test y baja diferencia train-test.<br>
+                    </div>
+                    """, unsafe_allow_html=True)
             # Si no hay validación cruzada, mostrar matriz de confusión de entrenamiento también
             if not use_cv:
                 st.write("#### Matriz de confusión (entrenamiento):")
@@ -2037,6 +2140,129 @@ if analisis == "Regresión Logística" and df is not None:
                 st.caption("Cada columna muestra el efecto de la variable sobre la probabilidad de esa clase (vs. la clase base).")
             st.info("Un coeficiente positivo significa que al aumentar esa variable, aumenta la probabilidad de la clase indicada. Un coeficiente negativo, lo contrario. La magnitud indica la fuerza del efecto.")
             st.caption("Puedes ordenar la tabla para ver qué variables tienen mayor impacto.")
+            
+            # === Efecto de la regularización en los coeficientes ===
+            st.markdown("---")
+            st.subheader("Efecto de la regularización en los coeficientes")
+            st.markdown("""
+            La regularización modifica los coeficientes del modelo. Veamos cómo varían al cambiar la fuerza de regularización:
+            """)
+            
+            # Visualización del efecto de la regularización
+            if penalty != 'none':
+                st.markdown(f"""
+                **Tipo de regularización actual: {penalty_option}**
+                
+                - **L1 (Lasso):** Fuerza algunos coeficientes a ser exactamente 0, eliminando variables.
+                - **L2 (Ridge):** Reduce todos los coeficientes, pero ninguno llega a 0.
+                """)
+                
+                # Calcular coeficientes para diferentes valores de C
+                C_values = [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
+                coef_paths = {feat: [] for feat in feature_cols}
+                
+                for C_test in C_values:
+                    model_test = LogisticRegression(
+                        max_iter=500, 
+                        multi_class='auto', 
+                        solver=solver, 
+                        penalty=penalty, 
+                        C=C_test,
+                        random_state=42
+                    )
+                    if use_cv:
+                        model_test.fit(X_scaled, y)
+                    else:
+                        model_test.fit(X_train, y_train)
+                    
+                    # Guardar coeficientes (promedio si es multiclase)
+                    if model_test.coef_.shape[0] == 1:
+                        coefs = model_test.coef_[0]
+                    else:
+                        # Multiclase: promediar coeficientes entre clases
+                        coefs = np.mean(np.abs(model_test.coef_), axis=0)
+                    
+                    for i, feat in enumerate(feature_cols):
+                        coef_paths[feat].append(coefs[i])
+                
+                # Crear gráfico interactivo de evolución de coeficientes
+                fig_coef_reg = go.Figure()
+                for feat in feature_cols:
+                    fig_coef_reg.add_trace(go.Scatter(
+                        x=C_values,
+                        y=coef_paths[feat],
+                        mode='lines+markers',
+                        name=feat,
+                        line=dict(width=2),
+                        marker=dict(size=6)
+                    ))
+                
+                fig_coef_reg.update_xaxes(type='log', title='C (Fuerza de regularización)')
+                fig_coef_reg.update_yaxes(title='Valor del coeficiente')
+                fig_coef_reg.update_layout(
+                    title=f'Evolución de coeficientes con {penalty_option}',
+                    hovermode='x unified',
+                    showlegend=True
+                )
+                
+                # Agregar línea vertical para el C actual
+                fig_coef_reg.add_vline(
+                    x=C_value, 
+                    line_dash="dash", 
+                    line_color="red",
+                    annotation_text=f"C actual = {C_value}",
+                    annotation_position="top"
+                )
+                
+                st.plotly_chart(fig_coef_reg, use_container_width=True)
+                
+                st.markdown(f"""
+                <div style='background:#23293a;padding:1em;border-radius:8px;'>
+                <b>¿Qué muestra este gráfico?</b><br>
+                - <b>Eje X (C):</b> Fuerza de regularización (escala logarítmica). Valores pequeños = más penalización.<br>
+                - <b>Eje Y:</b> Valor del coeficiente de cada variable.<br>
+                - <b>Línea roja:</b> Tu valor actual de C ({C_value:.3f}).<br>
+                - <b>Interpretación {penalty_option}:</b><br>
+                  {'• Coeficientes tienden a 0 a medida que C disminuye (más regularización).<br>• Algunas variables pueden eliminarse completamente (coef = 0) con L1.' if penalty == 'l1' else '• Todos los coeficientes se reducen uniformemente a medida que C disminuye.<br>• Con L2, ningún coeficiente llega exactamente a 0, pero se vuelven muy pequeños.'}<br>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Comparación de número de variables activas (para L1)
+                if penalty == 'l1':
+                    st.write("#### Variables activas (coeficiente ≠ 0) según C:")
+                    active_vars = []
+                    for C_test in C_values:
+                        model_test = LogisticRegression(
+                            max_iter=500, 
+                            multi_class='auto', 
+                            solver=solver, 
+                            penalty=penalty, 
+                            C=C_test,
+                            random_state=42
+                        )
+                        if use_cv:
+                            model_test.fit(X_scaled, y)
+                        else:
+                            model_test.fit(X_train, y_train)
+                        
+                        # Contar coeficientes no nulos
+                        if model_test.coef_.shape[0] == 1:
+                            n_active = np.sum(np.abs(model_test.coef_[0]) > 1e-5)
+                        else:
+                            # Multiclase: una variable está activa si algún coeficiente es no nulo
+                            n_active = np.sum(np.any(np.abs(model_test.coef_) > 1e-5, axis=0))
+                        active_vars.append(n_active)
+                    
+                    df_active = pd.DataFrame({
+                        'C': C_values,
+                        'Variables activas': active_vars,
+                        'Total variables': len(feature_cols)
+                    })
+                    st.dataframe(df_active, hide_index=True)
+                    st.caption("Con L1 (Lasso), al reducir C (más regularización), más variables son eliminadas (coeficiente = 0). Esto es útil para selección automática de variables.")
+            else:
+                st.info("Sin regularización, los coeficientes no están penalizados. Esto puede funcionar bien con datasets pequeños, pero puede causar sobreajuste si hay muchas variables o ruido.")
+            
             st.caption("Esta es una vista inicial. Puedes complejizarla luego agregando validación cruzada, regularización, interpretación de coeficientes, etc.")
 
             # === Predicción interactiva ===
