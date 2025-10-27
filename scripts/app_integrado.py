@@ -2193,6 +2193,58 @@ if analisis == "Regresión Logística" and df is not None:
             st.plotly_chart(fig_imp, use_container_width=True)
             st.info("Las variables más arriba en el gráfico son las que más influyen en la predicción. Si usas L1, las variables con barra cero han sido eliminadas por el modelo.")
             st.caption("La regularización puede cambiar el ranking: L1 tiende a dejar solo las variables más relevantes, L2 distribuye el peso entre todas.")
+
+            # === Explicación visual de la función sigmoide/logit ===
+            st.markdown("---")
+            st.subheader("¿Cómo transforma la regresión logística la combinación lineal en probabilidad? (Función sigmoide y logit)")
+            st.markdown(r"""
+            La regresión logística convierte la combinación lineal de variables (z) en una probabilidad usando la función **sigmoide**:
+            """)
+            st.latex(r"\text{Sigmoide}(z) = \frac{1}{1 + e^{-z}}")
+            st.markdown(r"""
+            - Cuando $z$ es muy negativo, la probabilidad se acerca a 0.
+            - Cuando $z$ es 0, la probabilidad es 0.5.
+            - Cuando $z$ es muy positivo, la probabilidad se acerca a 1.
+            
+            El **logit** es la función inversa de la sigmoide y representa el logaritmo del odds:
+            """)
+            st.latex(r"\text{logit}(p) = \log\left(\frac{p}{1-p}\right)")
+            st.markdown(r"""
+            <div style='background:#23293a;padding:1em;border-radius:8px;'>
+            <b>¿Qué significa esto?</b><br>
+            - El modelo calcula $z = b_0 + b_1 x_1 + ... + b_n x_n$<br>
+            - La sigmoide transforma $z$ en una probabilidad entre 0 y 1.<br>
+            - El logit es útil para interpretar los coeficientes: un cambio en $z$ equivale a un cambio logarítmico en el odds.<br>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Gráfico interactivo de la sigmoide
+            import numpy as np
+            import plotly.graph_objects as go
+            z_min, z_max = -10, 10
+            z_vals = np.linspace(z_min, z_max, 500)
+            sigmoid = lambda z: 1 / (1 + np.exp(-z))
+            p_vals = sigmoid(z_vals)
+            
+            # Slider para valor de z
+            z_slider = st.slider("Elige un valor de z (combinación lineal):", min_value=float(z_min), max_value=float(z_max), value=0.0, step=0.1)
+            p_slider = sigmoid(z_slider)
+            
+            fig_sig = go.Figure()
+            fig_sig.add_trace(go.Scatter(x=z_vals, y=p_vals, mode='lines', name='Sigmoide', line=dict(color='royalblue', width=3)))
+            fig_sig.add_trace(go.Scatter(x=[z_slider], y=[p_slider], mode='markers', name='Tu z', marker=dict(size=12, color='red')))
+            fig_sig.add_shape(type='line', x0=z_slider, x1=z_slider, y0=0, y1=p_slider, line=dict(color='red', dash='dot'))
+            fig_sig.add_shape(type='line', x0=z_min, x1=z_slider, y0=p_slider, y1=p_slider, line=dict(color='red', dash='dot'))
+            fig_sig.update_layout(
+                title='Función sigmoide: transformación de z en probabilidad',
+                xaxis_title='z (combinación lineal)',
+                yaxis_title='Probabilidad',
+                yaxis=dict(range=[-0.05, 1.05]),
+                showlegend=False
+            )
+            st.plotly_chart(fig_sig, use_container_width=True)
+            st.info(f"Para z = {z_slider:.2f}, la probabilidad predicha es {p_slider:.3f}.")
+            st.caption("Puedes mover el slider para ver cómo la sigmoide transforma cualquier combinación lineal en una probabilidad entre 0 y 1.")
             
             # === Efecto de la regularización en los coeficientes ===
             st.markdown("---")
