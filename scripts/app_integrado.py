@@ -2316,6 +2316,105 @@ if analisis == "Regresión Logística" and df is not None:
             st.plotly_chart(fig_resid, use_container_width=True)
             st.info("Los puntos alejados de 0 en el eje Y son los casos peor ajustados. Si hay muchos, el modelo puede estar subajustando o los datos tener outliers.")
             
+            # === Comparación visual del efecto de C (regularización) ===
+            if penalty is not None:
+                st.markdown("---")
+                st.subheader("Comparación visual: ¿Cómo afecta la fuerza de regularización (C) al modelo?")
+                st.markdown("""
+                Para entender mejor el efecto de la regularización, vamos a entrenar múltiples modelos con diferentes valores de C y comparar:
+                - Las métricas de rendimiento (accuracy, F1)
+                - La diferencia entre train y test (indicador de sobreajuste)
+                """)
+                
+                # Entrenar modelos con diferentes valores de C
+                C_test_values = [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
+                comparison_metrics = []
+                
+                for C_test in C_test_values:
+                    model_test = LogisticRegression(max_iter=500, multi_class='auto', solver=solver, penalty=penalty, C=C_test, random_state=42)
+                    
+                    if use_cv:
+                        model_test.fit(X_scaled, y)
+                        acc_train = accuracy_score(y, model_test.predict(X_scaled))
+                        f1_train = f1_score(y, model_test.predict(X_scaled), average='weighted', zero_division=0)
+                        acc_test = acc_train  # En CV no hay test separado
+                        f1_test = f1_train
+                    else:
+                        model_test.fit(X_train, y_train)
+                        acc_train = accuracy_score(y_train, model_test.predict(X_train))
+                        acc_test = accuracy_score(y_test, model_test.predict(X_test))
+                        f1_train = f1_score(y_train, model_test.predict(X_train), average='weighted', zero_division=0)
+                        f1_test = f1_score(y_test, model_test.predict(X_test), average='weighted', zero_division=0)
+                    
+                    comparison_metrics.append({
+                        'C': C_test,
+                        'Acc Train': acc_train,
+                        'Acc Test': acc_test,
+                        'F1 Train': f1_train,
+                        'F1 Test': f1_test,
+                        'Sobreajuste (Acc)': acc_train - acc_test
+                    })
+                
+                df_comp_C = pd.DataFrame(comparison_metrics)
+                
+                # Gráfico de métricas vs C
+                import plotly.graph_objects as go
+                fig_metrics_C = go.Figure()
+                fig_metrics_C.add_trace(go.Scatter(x=df_comp_C['C'], y=df_comp_C['Acc Train'], mode='lines+markers', name='Acc Train', line=dict(color='blue', width=2)))
+                fig_metrics_C.add_trace(go.Scatter(x=df_comp_C['C'], y=df_comp_C['Acc Test'], mode='lines+markers', name='Acc Test', line=dict(color='red', width=2)))
+                fig_metrics_C.add_trace(go.Scatter(x=df_comp_C['C'], y=df_comp_C['F1 Train'], mode='lines+markers', name='F1 Train', line=dict(color='lightblue', dash='dash', width=2)))
+                fig_metrics_C.add_trace(go.Scatter(x=df_comp_C['C'], y=df_comp_C['F1 Test'], mode='lines+markers', name='F1 Test', line=dict(color='orange', dash='dash', width=2)))
+                
+                # Línea vertical para C actual
+                fig_metrics_C.add_vline(x=C_value, line_dash="dot", line_color="green", annotation_text=f"C actual = {C_value}", annotation_position="top")
+                
+                fig_metrics_C.update_xaxes(type='log', title='C (escala logarítmica)')
+                fig_metrics_C.update_yaxes(title='Métrica', range=[0, 1.05])
+                fig_metrics_C.update_layout(title=f'Métricas vs. C ({penalty_option})', hovermode='x unified')
+                st.plotly_chart(fig_metrics_C, use_container_width=True)
+                
+                st.markdown(f"""
+                **¿Qué muestra este gráfico?**
+                - **Eje X (C):** Fuerza de regularización en escala logarítmica. Valores bajos = más regularización.
+                - **Líneas azul/roja:** Accuracy en train y test.
+                - **Líneas celeste/naranja:** F1 en train y test.
+                - **Línea verde:** Tu valor actual de C ({C_value:.3f}).
+                
+                **Interpretación:**
+                - Si las líneas de train y test están muy separadas (train >> test), hay sobreajuste.
+                - El C óptimo es donde test tiene el mejor rendimiento y la diferencia train-test es pequeña.
+                - Con {penalty_option}: valores muy bajos de C eliminan variables (L1) o reducen mucho los coeficientes (L2).
+                """)
+                
+                # Gráfico de sobreajuste vs C
+                fig_overfit_C = go.Figure()
+                fig_overfit_C.add_trace(go.Scatter(
+                    x=df_comp_C['C'], 
+                    y=df_comp_C['Sobreajuste (Acc)'], 
+                    mode='lines+markers', 
+                    name='Sobreajuste (Acc Train - Acc Test)',
+                    line=dict(color='purple', width=2),
+                    fill='tozeroy'
+                ))
+                fig_overfit_C.add_vline(x=C_value, line_dash="dot", line_color="green", annotation_text=f"C actual = {C_value}", annotation_position="top")
+                fig_overfit_C.update_xaxes(type='log', title='C (escala logarítmica)')
+                fig_overfit_C.update_yaxes(title='Sobreajuste (Train - Test)')
+                fig_overfit_C.update_layout(title='Sobreajuste vs. C: ¿Cuánto mejor es el modelo en train que en test?')
+                st.plotly_chart(fig_overfit_C, use_container_width=True)
+                
+                st.info("Valores altos de sobreajuste indican que el modelo memoriza el conjunto de entrenamiento. Busca un C donde el sobreajuste sea bajo y el rendimiento en test sea bueno.")
+                
+                # Tabla comparativa
+                st.write("#### Tabla comparativa de métricas:")
+                st.dataframe(df_comp_C.style.format({
+                    'C': '{:.3f}',
+                    'Acc Train': '{:.3f}',
+                    'Acc Test': '{:.3f}',
+                    'F1 Train': '{:.3f}',
+                    'F1 Test': '{:.3f}',
+                    'Sobreajuste (Acc)': '{:.3f}'
+                }), hide_index=True, use_container_width=True)
+            
             # === Efecto de la regularización en los coeficientes ===
             st.markdown("---")
             st.subheader("Efecto de la regularización en los coeficientes")
