@@ -2245,6 +2245,76 @@ if analisis == "Regresión Logística" and df is not None:
             st.plotly_chart(fig_sig, use_container_width=True)
             st.info(f"Para z = {z_slider:.2f}, la probabilidad predicha es {p_slider:.3f}.")
             st.caption("Puedes mover el slider para ver cómo la sigmoide transforma cualquier combinación lineal en una probabilidad entre 0 y 1.")
+
+            # === Análisis de residuos y detección de outliers ===
+            st.markdown("---")
+            st.subheader("Análisis de residuos y detección de outliers")
+            st.markdown("""
+            Los **residuos** en regresión logística miden la diferencia entre la predicción del modelo y la realidad. Analizarlos ayuda a detectar:
+            - Observaciones mal clasificadas
+            - Outliers (casos atípicos)
+            - Posibles errores de datos o patrones no capturados por el modelo
+            """)
+            
+            st.markdown("**¿Cómo se calcula el residuo?**")
+            st.markdown("Para cada observación, el residuo se calcula como:")
+            st.latex(r"r = 1 - p_{\text{verdadera}}")
+            
+            st.markdown(r"""
+            Donde $p_{\text{verdadera}}$ es la probabilidad que el modelo asignó a la clase verdadera de esa observación.
+            
+            **Interpretación:**
+            - Si el modelo predice con 100% de confianza la clase correcta: $p_{\text{verdadera}} = 1$ → $r = 0$ (residuo pequeño, buen ajuste).
+            - Si el modelo predice con baja probabilidad la clase correcta: $p_{\text{verdadera}}$ es pequeño → $r$ es grande (mal ajuste).
+            - **Residuos grandes** (cercanos a 1) indican casos mal ajustados o outliers.
+            """)
+
+            # Determinar conjunto a usar (test si hay, sino todo)
+            if 'y_test' in locals():
+                X_resid = X_test
+                y_resid = y_test
+                probas_resid = model.predict_proba(X_test)
+                y_pred_resid = model.predict(X_test)
+            else:
+                X_resid = X_scaled
+                y_resid = y
+                probas_resid = model.predict_proba(X_scaled)
+                y_pred_resid = model.predict(X_scaled)
+
+            # Calcular residuos para cada observación
+            # Para multiclase: residuo = 1 - probabilidad de la clase verdadera
+            resid_list = []
+            for i, (yt, yp, probas) in enumerate(zip(y_resid, y_pred_resid, probas_resid)):
+                idx_clase = list(model.classes_).index(yt)
+                p_true = probas[idx_clase]
+                resid = 1 - p_true
+                resid_list.append({
+                    'Índice': i,
+                    'Clase real': yt,
+                    'Predicción': yp,
+                    'Prob. clase real': p_true,
+                    'Residuo': resid
+                })
+            df_residuos = pd.DataFrame(resid_list)
+            # Mostrar tabla de los 10 casos con mayor residuo absoluto
+            st.write("#### Casos con mayor residuo (posibles outliers o errores):")
+            df_top_resid = df_residuos.reindex(df_residuos['Residuo'].abs().sort_values(ascending=False).index).head(10)
+            st.dataframe(df_top_resid, hide_index=True, use_container_width=True)
+            st.caption("Observaciones con residuo alto suelen ser mal clasificadas o atípicas. Revisa si hay errores de datos o patrones no capturados.")
+
+            # Gráfico de dispersión: residuos vs. probabilidad predicha
+            import plotly.express as px
+            fig_resid = px.scatter(
+                df_residuos,
+                x='Prob. clase real',
+                y='Residuo',
+                color='Clase real',
+                hover_data=['Índice', 'Predicción'],
+                title='Residuos vs. probabilidad predicha para la clase real',
+                labels={'Prob. clase real': 'Probabilidad predicha (clase real)', 'Residuo': 'Residuo'}
+            )
+            st.plotly_chart(fig_resid, use_container_width=True)
+            st.info("Los puntos alejados de 0 en el eje Y son los casos peor ajustados. Si hay muchos, el modelo puede estar subajustando o los datos tener outliers.")
             
             # === Efecto de la regularización en los coeficientes ===
             st.markdown("---")
