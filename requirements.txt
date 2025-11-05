@@ -5,3 +5,5 @@ matplotlib
 seaborn
 numpy
 plotly
+scipy
+deep-translator
