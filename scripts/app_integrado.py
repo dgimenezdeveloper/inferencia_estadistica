@@ -84,6 +84,23 @@ from preprocesamiento import (
     aplicar_pca,
     elegir_n_pca_cv,
 )
+
+# Traducción automática de nombres de columnas al español
+from deep_translator import GoogleTranslator
+
+def traducir_columnas_automatico(df):
+    if df is None:
+        return df
+    try:
+        nuevas_columnas = [
+            GoogleTranslator(source='auto', target='es').translate(str(col))
+            for col in df.columns
+        ]
+        df.columns = nuevas_columnas
+    except Exception as e:
+        # Si falla la traducción, deja los nombres originales
+        pass
+    return df
 from modelos import (
     entrenar_lda,
     entrenar_qda, 
@@ -477,6 +494,8 @@ analisis = st.sidebar.selectbox(
         "Regresión Logística",
         "Reducción de dimensiones (PCA)",
         "K-means (Clustering)",
+            "DBSCAN (Clustering)",
+            "Clustering Jerárquico",
         "SVM (Máquinas de Vectores de Soporte)",
         "Comparativa de Modelos"
     ]
@@ -493,11 +512,18 @@ archivo_subido = st.sidebar.file_uploader("O sube tu propio archivo CSV", type=[
 
 # Cargar el dataset (modularizado)
 df, _msg_carga = cargar_dataset(archivo_subido, opcion_archivo, carpeta_datos)
+df = traducir_columnas_automatico(df)
 if _msg_carga:
     st.sidebar.success(_msg_carga)
 
-# Selección global de columna de clase y nombres descriptivos
+# Conversión automática de variables categóricas a numéricas
 if df is not None:
+    cat_cols_auto = df.select_dtypes(include=["object", "category"]).columns.tolist()
+    if cat_cols_auto:
+        df = pd.get_dummies(df, columns=cat_cols_auto, drop_first=True)
+        st.sidebar.info(f"Las variables categóricas {cat_cols_auto} han sido convertidas automáticamente a variables numéricas (one-hot encoding) para su análisis.")
+
+    # Selección global de columna de clase y nombres descriptivos
     max_unique_target = 20
     num_cols_global, cat_cols_global = seleccionar_columnas(df, max_unique_target=max_unique_target)
     if cat_cols_global:
@@ -1756,6 +1782,8 @@ if analisis == "Regresión Logística" and df is not None:
     st.markdown("""
     La regresión logística es un modelo supervisado para clasificación binaria o multiclase. Permite predecir la probabilidad de pertenencia a cada clase y es interpretable.
     """)
+
+    # La visualización de correlación/covarianza se mueve justo después de la selección de features
     # Selección de variables
     columnas = df.columns.tolist()
     num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
@@ -1773,6 +1801,46 @@ if analisis == "Regresión Logística" and df is not None:
             default=[c for c in num_cols if c != target_col],
             key="features_logreg"
         )
+
+        # === Análisis de correlación y covarianza ===
+        st.subheader("🔗 Matriz de correlación y covarianza entre variables predictoras")
+        st.markdown("""
+        Antes de entrenar el modelo, es fundamental analizar la relación entre las variables predictoras:
+        - **La matriz de correlación** muestra la fuerza y dirección de la relación lineal entre pares de variables (de -1 a 1).
+        - **La matriz de covarianza** muestra cómo varían juntas dos variables (depende de la escala).
+        - **¿Por qué importa?** En regresión logística, una alta correlación entre predictores (multicolinealidad) puede dificultar la interpretación de los coeficientes y afectar la estabilidad del modelo.
+        """)
+        if feature_cols:
+            corr_matrix = df[feature_cols].corr()
+            cov_matrix = df[feature_cols].cov()
+            import plotly.express as px
+            import numpy as np
+            # Heatmap de correlación
+            fig_corr = px.imshow(
+                corr_matrix,
+                text_auto=True,
+                color_continuous_scale='RdBu',
+                zmin=-1, zmax=1,
+                aspect="auto",
+                title="Matriz de correlación entre variables predictoras"
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
+            # Heatmap de covarianza
+            fig_cov = px.imshow(
+                cov_matrix,
+                text_auto=True,
+                color_continuous_scale='Viridis',
+                aspect="auto",
+                title="Matriz de covarianza entre variables predictoras"
+            )
+            st.plotly_chart(fig_cov, use_container_width=True)
+            # Advertencia de multicolinealidad
+            high_corr = (np.abs(corr_matrix.where(~np.eye(corr_matrix.shape[0],dtype=bool))).max().max() > 0.8)
+            if high_corr:
+                st.warning("⚠️ Se detectó alta correlación entre algunas variables predictoras (|correlación| > 0.8). Esto puede causar multicolinealidad y afectar la interpretación de los coeficientes. Considera eliminar o combinar variables altamente correlacionadas.")
+            st.caption("La correlación alta entre variables puede dificultar la interpretación de la regresión logística. Si ves bloques rojos/azules intensos fuera de la diagonal, revisa esas variables.")
+        else:
+            st.info("Selecciona primero las variables predictoras para ver la matriz de correlación y covarianza.")
 
         if feature_cols:
             X = df[feature_cols]
@@ -2585,68 +2653,1165 @@ if analisis == "Regresión Logística" and df is not None:
                 st.caption("La clase con mayor probabilidad es la predicción del modelo. Si varias clases tienen probabilidades similares, el modelo está menos seguro.")
         else:
             st.info("Selecciona al menos una variable numérica para entrenar el modelo.")
-
 # === VISTA K-MEANS CLUSTERING ===
 elif analisis == "K-means (Clustering)" and df is not None:
     st.title("K-means: Agrupamiento no supervisado")
-    st.markdown("""
-    K-means es un algoritmo de aprendizaje no supervisado que agrupa los datos en k clusters según su similitud. No requiere etiquetas de clase.
-    """)
+    with st.expander("ℹ️ ¿Qué es k-means? Fundamentos, usos y advertencias", expanded=True):
+        st.markdown("""
+        **K-means** es un algoritmo de aprendizaje no supervisado que agrupa los datos en *k* clusters según su similitud, sin requerir etiquetas de clase.
+        
+        **¿Para qué sirve?**
+        - Descubrir patrones o segmentos ocultos en los datos.
+        - Agrupar clientes, productos, genes, etc. según características similares.
+        - Preprocesar datos para otros algoritmos (por ejemplo, crear etiquetas automáticas).
+        
+        **¿Cómo funciona?**
+        1. Elige el número de clusters (*k*).
+        2. Inicializa *k* centroides aleatorios.
+        3. Asigna cada punto al cluster más cercano (según distancia euclídea).
+        4. Recalcula los centroides como el promedio de los puntos asignados.
+        5. Repite los pasos 3-4 hasta que los centroides no cambian significativamente.
+        
+        **Advertencias y buenas prácticas:**
+        - El resultado depende de la escala de las variables (¡siempre escalar!).
+        - Elige *k* usando el método del codo o el coeficiente silhouette.
+        - K-means asume clusters esféricos y de tamaño similar.
+        - No es robusto a outliers ni a variables categóricas.
+        - La interpretación de los clusters requiere análisis posterior (¿qué significa cada grupo?).
+        """)
+    
     columnas = df.columns.tolist()
-    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
+    # Lista de posibles nombres para la variable de clase
+    nombres_clase = ["clase", "class", "target", "etiqueta", "label"]
+    # Excluir cualquier columna cuyo nombre coincida (ignorando mayúsculas/minúsculas)
+    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c]) and c.strip().lower() not in nombres_clase]
     feature_cols = st.multiselect(
-        "Selecciona las columnas numéricas para clustering:",
+        "Selecciona las columnas numéricas para clustering (sin la clase):",
         num_cols,
         default=num_cols,
         key="features_kmeans"
     )
+    
     if feature_cols and len(feature_cols) >= 2:
         X = df[feature_cols]
         # Manejo de nulos
         if X.isnull().values.any():
             st.warning("Se encontraron valores faltantes. Imputando con la media...")
             X = X.fillna(X.mean())
+        
         # Escalado
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.cluster import KMeans
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # === DETECCIÓN AUTOMÁTICA DEL K ÓPTIMO ===
+        st.markdown("---")
+        st.subheader("🔍 Detección automática de k óptimo")
+        
+        with st.spinner("Calculando k óptimo usando método del codo..."):
+            # Calcular inercia para diferentes valores de k
+            max_k = min(10, len(X_scaled) - 1)
+            ks = range(2, max_k + 1)
+            inertias = []
+            
+            for ki in ks:
+                km_temp = KMeans(n_clusters=ki, n_init=10, random_state=42)
+                km_temp.fit(X_scaled)
+                inertias.append(km_temp.inertia_)
+            
+            # Detectar el codo usando el método de la segunda derivada
+            def find_elbow(inertias):
+                """Encuentra el punto del codo usando la segunda derivada"""
+                if len(inertias) < 3:
+                    return 2
+                
+                # Normalizar para que el cálculo sea más estable
+                x = np.arange(len(inertias))
+                y = np.array(inertias)
+                
+                # Calcular primera derivada (pendiente)
+                first_derivative = np.diff(y)
+                
+                # Calcular segunda derivada (cambio de pendiente)
+                second_derivative = np.diff(first_derivative)
+                
+                # El codo es donde la segunda derivada es máxima (mayor cambio de curvatura)
+                elbow_idx = np.argmax(second_derivative) + 2  # +2 porque perdimos 2 puntos con las derivadas
+                
+                return min(elbow_idx, len(ks))
+            
+            k_optimo = find_elbow(inertias) + 1  # +1 porque ks empieza en 2
+            
+            # Gráfico del método del codo con k óptimo marcado
+            import plotly.graph_objects as go
+            fig_elbow = go.Figure()
+            fig_elbow.add_trace(go.Scatter(
+                x=list(ks), 
+                y=inertias,
+                mode='lines+markers',
+                name='Inercia',
+                line=dict(color='#4f8cff', width=3),
+                marker=dict(size=8)
+            ))
+            
+            # Marcar el k óptimo
+            if k_optimo - 2 < len(inertias):
+                fig_elbow.add_trace(go.Scatter(
+                    x=[k_optimo],
+                    y=[inertias[k_optimo - 2]],
+                    mode='markers',
+                    name=f'K óptimo sugerido: {k_optimo}',
+                    marker=dict(size=15, color='#2ecc71', symbol='star')
+                ))
+            
+            fig_elbow.update_layout(
+                title="Método del codo - Selección automática de k",
+                xaxis_title="Número de clusters (k)",
+                yaxis_title="Inercia (WCSS)",
+                hovermode='x unified',
+                height=400
+            )
+            
+            st.plotly_chart(fig_elbow, use_container_width=True)
+            
+            st.success(f"🎯 **K óptimo sugerido automáticamente: {k_optimo}** (puedes cambiarlo manualmente abajo)")
+        
+        # === SELECCIÓN MANUAL DE K CON VALOR SUGERIDO ===
+        st.markdown("---")
+        st.subheader("⚙️ Configuración del clustering")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            k = st.slider(
+                "Selecciona el número de clusters (k)",
+                min_value=2,
+                max_value=max_k,
+                value=k_optimo,
+                step=1,
+                help=f"El algoritmo sugiere k={k_optimo} basado en el método del codo"
+            )
+        with col2:
+            if st.button("🔄 Usar k sugerido", key="usar_k_sugerido"):
+                k = k_optimo
+                st.info(f"K establecido en {k_optimo}")
+        
+        # Entrenamiento
+        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
+        clusters = kmeans.fit_predict(X_scaled)
+        
+        # === VISUALIZACIÓN MEJORADA CON CENTROIDES ===
+        st.markdown("---")
+        st.subheader(f"📊 Visualización de {k} clusters")
+        
+        # === SUGERENCIA AUTOMÁTICA DE VARIABLES ===
+        with st.expander("💡 ¿Qué variables elegir para visualizar? (Ayuda)", expanded=False):
+            st.markdown("""
+            ### 🤔 ¿Cómo elegir las mejores variables para visualizar?
+            
+            **El objetivo** es elegir variables que muestren mejor la **separación entre clusters**.
+            
+            **Criterios recomendados:**
+            1. **Varianza alta**: Variables con mayor rango de valores muestran más diferencias
+            2. **Baja correlación**: Variables independientes muestran información complementaria
+            3. **Separación entre centroides**: Variables donde los centroides están más alejados
+            
+            **💡 Tip**: El algoritmo puede sugerir automáticamente las mejores variables basándose en:
+            - La distancia entre centroides en cada variable
+            - La varianza explicada por cada variable
+            - La correlación entre variables (evita redundancia)
+            
+            **Usa el botón "✨ Sugerir variables automáticamente"** para que el algoritmo elija por ti.
+            """)
+        
+        # Calcular variables sugeridas automáticamente
+        def sugerir_variables_para_visualizacion(X_scaled, centroids, feature_cols, n_vars=3):
+            """Sugiere las mejores variables para visualizar clusters"""
+            # Calcular la separación entre centroides para cada variable
+            separacion_por_var = []
+            for i in range(X_scaled.shape[1]):
+                # Distancia máxima entre centroides en esta dimensión
+                max_dist = np.max(np.abs(np.diff(centroids[:, i])))
+                # Varianza de los datos en esta dimensión
+                var = np.var(X_scaled[:, i])
+                # Score combinado: separación * varianza
+                score = max_dist * var
+                separacion_por_var.append((feature_cols[i], score))
+            
+            # Ordenar por score descendente
+            separacion_por_var.sort(key=lambda x: x[1], reverse=True)
+            
+            # Retornar las n mejores variables
+            return [var[0] for var in separacion_por_var[:n_vars]]
+        
+        # Sugerir variables
+        vars_sugeridas_3d = sugerir_variables_para_visualizacion(X_scaled, kmeans.cluster_centers_, feature_cols, n_vars=3)
+        vars_sugeridas_2d = vars_sugeridas_3d[:2]
+        
+        # Crear paleta de colores distintiva
+        colores_clusters = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
+                           '#DDA15E', '#BC6C25', '#B8B8FF', '#FFB8B8', '#B8FFB8']
+        
+        import plotly.graph_objects as go
+        
+        # Selector de tipo de visualización
+        tipo_viz = st.radio(
+            "Selecciona el tipo de visualización:",
+            ["2D (2 variables)", "3D (3 variables)"] if len(feature_cols) >= 3 else ["2D (2 variables)"],
+            horizontal=True
+        )
+        
+        # Selector de variables para visualización
+        if tipo_viz == "3D (3 variables)" and len(feature_cols) >= 3:
+            st.info(f"🎯 **Variables sugeridas automáticamente**: {', '.join(vars_sugeridas_3d)}")
+            
+            col_btn, col_txt = st.columns([1, 3])
+            with col_btn:
+                usar_sugeridas_3d = st.button("✨ Usar variables sugeridas", key="usar_sugeridas_3d")
+            with col_txt:
+                st.caption("El algoritmo sugiere estas variables porque muestran mejor la separación entre clusters")
+            
+            st.write("**O elige manualmente las 3 variables para visualizar:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                default_x = vars_sugeridas_3d[0] if usar_sugeridas_3d or 'var_x_3d' not in st.session_state else feature_cols[0]
+                var_x = st.selectbox("Eje X:", feature_cols, index=feature_cols.index(default_x), key="var_x_3d")
+            with col2:
+                default_y = vars_sugeridas_3d[1] if usar_sugeridas_3d or 'var_y_3d' not in st.session_state else feature_cols[min(1, len(feature_cols)-1)]
+                var_y = st.selectbox("Eje Y:", feature_cols, index=feature_cols.index(default_y), key="var_y_3d")
+            with col3:
+                default_z = vars_sugeridas_3d[2] if usar_sugeridas_3d or 'var_z_3d' not in st.session_state else feature_cols[min(2, len(feature_cols)-1)]
+                var_z = st.selectbox("Eje Z:", feature_cols, index=feature_cols.index(default_z), key="var_z_3d")
+            
+            # Obtener índices de las variables seleccionadas
+            idx_x = feature_cols.index(var_x)
+            idx_y = feature_cols.index(var_y)
+            idx_z = feature_cols.index(var_z)
+            
+            # Visualización 3D con centroides
+            fig3d = go.Figure()
+            
+            # Agregar puntos de datos por cluster
+            for cluster_id in range(k):
+                mask = clusters == cluster_id
+                fig3d.add_trace(go.Scatter3d(
+                    x=X[var_x][mask],
+                    y=X[var_y][mask],
+                    z=X[var_z][mask],
+                    mode='markers',
+                    name=f'Cluster {cluster_id}',
+                    marker=dict(
+                        size=6,
+                        color=colores_clusters[cluster_id % len(colores_clusters)],
+                        opacity=0.7,
+                        line=dict(width=0.5, color='white')
+                    )
+                ))
+            
+            # Agregar centroides (des-escalar primero)
+            centroids_original = scaler.inverse_transform(kmeans.cluster_centers_)
+            fig3d.add_trace(go.Scatter3d(
+                x=centroids_original[:, idx_x],
+                y=centroids_original[:, idx_y],
+                z=centroids_original[:, idx_z],
+                mode='markers+text',
+                name='Centroides',
+                marker=dict(
+                    size=24,
+                    color='yellow',
+                    symbol='cross',
+                    line=dict(width=3, color='black')
+                ),
+                text=[f'C{i}' for i in range(k)],
+                textposition='top center',
+                textfont=dict(size=14, color='yellow', family='Arial Black'),
+                hovertemplate='<b>Centroide %{text}</b><br>%{x:.2f}, %{y:.2f}, %{z:.2f}<extra></extra>'
+            ))
+            
+            fig3d.update_layout(
+                title=f"Visualización 3D de {k} clusters con centroides",
+                scene=dict(
+                    xaxis_title=var_x,
+                    yaxis_title=var_y,
+                    zaxis_title=var_z
+                ),
+                height=600,
+                showlegend=True
+            )
+            
+            st.plotly_chart(fig3d, use_container_width=True)
+            
+        else:
+            # Visualización 2D
+            st.info(f"🎯 **Variables sugeridas automáticamente**: {', '.join(vars_sugeridas_2d)}")
+            
+            col_btn, col_txt = st.columns([1, 3])
+            with col_btn:
+                usar_sugeridas_2d = st.button("✨ Usar variables sugeridas", key="usar_sugeridas_2d")
+            with col_txt:
+                st.caption("El algoritmo sugiere estas variables porque muestran mejor la separación entre clusters")
+            
+            st.write("**O elige manualmente las 2 variables para visualizar:**")
+            col1, col2 = st.columns(2)
+            with col1:
+                default_x_2d = vars_sugeridas_2d[0] if usar_sugeridas_2d or 'var_x_2d' not in st.session_state else feature_cols[0]
+                var_x = st.selectbox("Eje X:", feature_cols, index=feature_cols.index(default_x_2d), key="var_x_2d")
+            with col2:
+                default_y_2d = vars_sugeridas_2d[1] if usar_sugeridas_2d or 'var_y_2d' not in st.session_state else feature_cols[min(1, len(feature_cols)-1)]
+                var_y = st.selectbox("Eje Y:", feature_cols, index=feature_cols.index(default_y_2d), key="var_y_2d")
+            
+            # Obtener índices de las variables seleccionadas
+            idx_x = feature_cols.index(var_x)
+            idx_y = feature_cols.index(var_y)
+            
+            fig2d = go.Figure()
+            
+            # Agregar puntos de datos por cluster
+            for cluster_id in range(k):
+                mask = clusters == cluster_id
+                fig2d.add_trace(go.Scatter(
+                    x=X[var_x][mask],
+                    y=X[var_y][mask],
+                    mode='markers',
+                    name=f'Cluster {cluster_id}',
+                    marker=dict(
+                        size=8,
+                        color=colores_clusters[cluster_id % len(colores_clusters)],
+                        opacity=0.7,
+                        line=dict(width=1, color='white')
+                    )
+                ))
+            
+            # Agregar centroides (des-escalar primero)
+            centroids_original = scaler.inverse_transform(kmeans.cluster_centers_)
+            fig2d.add_trace(go.Scatter(
+                x=centroids_original[:, idx_x],
+                y=centroids_original[:, idx_y],
+                mode='markers+text',
+                name='Centroides',
+                marker=dict(
+                    size=24,
+                    color='yellow',
+                    symbol='star',
+                    line=dict(width=3, color='black')
+                ),
+                text=[f'C{i}' for i in range(k)],
+                textposition='top center',
+                textfont=dict(size=14, color='yellow', family='Arial Black'),
+                hovertemplate='<b>Centroide %{text}</b><br>%{x:.2f}, %{y:.2f}<extra></extra>'
+            ))
+            
+            fig2d.update_layout(
+                title=f"Visualización 2D de {k} clusters con centroides",
+                xaxis_title=var_x,
+                yaxis_title=var_y,
+                height=500,
+                showlegend=True,
+                hovermode='closest'
+            )
+            
+            st.plotly_chart(fig2d, use_container_width=True)
+        
+        st.info("💡 Los **centroides** (estrellas negras/amarillas) representan el punto medio de cada cluster. Son útiles para caracterizar e interpretar cada grupo.")
+        
+        # Tabla de asignación de clusters
+        st.markdown("---")
+        st.write(f"#### Asignación de clusters (primeras 10 filas):")
+        preview_df = df[feature_cols].head(10).copy()
+        preview_df["Cluster"] = clusters[:10]
+        st.dataframe(preview_df, use_container_width=True)
+        
+        # Mostrar centroides y su interpretación
+        st.markdown("---")
+        st.subheader("📍 Centroides de los clusters")
+        centroids_original_df = pd.DataFrame(
+            scaler.inverse_transform(kmeans.cluster_centers_),
+            columns=feature_cols,
+            index=[f"Cluster {i}" for i in range(k)]
+        )
+        st.dataframe(centroids_original_df.style.format(precision=3).background_gradient(cmap='YlOrRd'), use_container_width=True)
+        st.caption("Cada fila representa el centroide de un cluster en el espacio original (sin escalar). Valores más altos están resaltados en rojo.")
+        
+        # Calcular y mostrar el coeficiente de silhouette
+        from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+        st.markdown("---")
+        st.subheader("📈 Métricas de calidad del clustering")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        if k > 1 and len(X_scaled) > k:
+            sil_score = silhouette_score(X_scaled, clusters)
+            db_score = davies_bouldin_score(X_scaled, clusters)
+            ch_score = calinski_harabasz_score(X_scaled, clusters)
+            
+            with col1:
+                st.metric(
+                    "Silhouette", 
+                    f"{sil_score:.3f}",
+                    help="Rango: [-1, 1]. Valores cercanos a 1 = clusters bien definidos. Cercanos a 0 = clusters solapados."
+                )
+            with col2:
+                st.metric(
+                    "Davies-Bouldin", 
+                    f"{db_score:.3f}",
+                    help="Valores más bajos son mejores. Mide la separación entre clusters."
+                )
+            with col3:
+                st.metric(
+                    "Calinski-Harabasz", 
+                    f"{ch_score:.1f}",
+                    help="Valores más altos son mejores. Ratio de dispersión entre/dentro de clusters."
+                )
+            with col4:
+                st.metric(
+                    "Inercia", 
+                    f"{kmeans.inertia_:.2f}",
+                    help="Suma de distancias al cuadrado de cada punto a su centroide. Menor es mejor."
+                )
+            
+            # Interpretación de métricas
+            st.markdown("#### 📊 Interpretación de métricas:")
+            col_int1, col_int2 = st.columns(2)
+            
+            with col_int1:
+                if sil_score >= 0.5:
+                    st.success("✅ **Silhouette**: Clustering excelente (≥ 0.5)")
+                elif sil_score >= 0.25:
+                    st.info("ℹ️ **Silhouette**: Clustering aceptable (≥ 0.25)")
+                else:
+                    st.warning("⚠️ **Silhouette**: Clustering débil (< 0.25)")
+                
+                if db_score < 1.0:
+                    st.success("✅ **Davies-Bouldin**: Excelente separación (< 1.0)")
+                elif db_score < 2.0:
+                    st.info("ℹ️ **Davies-Bouldin**: Separación aceptable (< 2.0)")
+                else:
+                    st.warning("⚠️ **Davies-Bouldin**: Baja separación (≥ 2.0)")
+            
+            with col_int2:
+                if ch_score > 200:
+                    st.success("✅ **Calinski-Harabasz**: Muy buena definición (> 200)")
+                elif ch_score > 100:
+                    st.info("ℹ️ **Calinski-Harabasz**: Definición aceptable (> 100)")
+                else:
+                    st.warning("⚠️ **Calinski-Harabasz**: Definición débil (< 100)")
+                
+                st.metric("Iteraciones", f"{kmeans.n_iter_}", help="Número de iteraciones hasta convergencia")
+        else:
+            sil_score = 0
+            db_score = 0
+            ch_score = 0
+        
+        # Distribución de muestras por cluster
+        st.markdown("---")
+        st.subheader("📊 Distribución de muestras por cluster")
+        
+        cluster_counts = pd.Series(clusters).value_counts().sort_index()
+        
+        col_dist1, col_dist2 = st.columns([2, 1])
+        
+        with col_dist1:
+            # Gráfico de barras de distribución
+            fig_dist = go.Figure()
+            fig_dist.add_trace(go.Bar(
+                x=[f"Cluster {i}" for i in cluster_counts.index],
+                y=cluster_counts.values,
+                marker=dict(
+                    color=[colores_clusters[i % len(colores_clusters)] for i in cluster_counts.index],
+                    line=dict(color='white', width=2)
+                ),
+                text=cluster_counts.values,
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Muestras: %{y}<br>Porcentaje: %{customdata:.1f}%<extra></extra>',
+                customdata=(cluster_counts.values / len(clusters) * 100)
+            ))
+            
+            fig_dist.update_layout(
+                title="Distribución de muestras por cluster",
+                xaxis_title="Cluster",
+                yaxis_title="Número de muestras",
+                height=400,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig_dist, use_container_width=True)
+        
+        with col_dist2:
+            st.write("**Resumen:**")
+            for cluster_id in cluster_counts.index:
+                count = cluster_counts[cluster_id]
+                pct = (count / len(clusters)) * 100
+                st.metric(
+                    f"Cluster {cluster_id}",
+                    f"{count} muestras",
+                    f"{pct:.1f}%"
+                )
+            
+            # Advertencia sobre desbalance
+            max_count = cluster_counts.max()
+            min_count = cluster_counts.min()
+            if max_count > 3 * min_count:
+                st.warning("⚠️ Los clusters están desbalanceados. Considera ajustar k.")
+            else:
+                st.success("✅ Distribución balanceada")
+        
+        # Interpretación automática y sugerencias
+        st.markdown("---")
+        st.subheader("🧠 Interpretación automática y sugerencias")
+        recomendaciones = []
+        
+        if k != k_optimo:
+            recomendaciones.append(f"💡 El algoritmo sugiere k={k_optimo}, pero elegiste k={k}. Compara los resultados.")
+        
+        if k > 1 and len(X_scaled) > k:
+            if sil_score >= 0.5:
+                recomendaciones.append("🔹 Los clusters están bien definidos. Puedes analizar los centroides para interpretar cada grupo.")
+            elif sil_score >= 0.25:
+                recomendaciones.append("🔸 El agrupamiento es aceptable, pero podrías probar con otro valor de k o revisar las variables seleccionadas.")
+            else:
+                recomendaciones.append("⚠️ El agrupamiento es débil. Prueba con otro k, elimina outliers o selecciona variables más relevantes.")
+        
+        if len(feature_cols) > 5:
+            recomendaciones.append("📉 Considera reducir el número de variables para facilitar la interpretación y evitar clusters artificiales.")
+        
+        if not recomendaciones:
+            recomendaciones.append("✅ El análisis de clustering se realizó correctamente. Interpreta los centroides y visualiza los grupos.")
+        
+        for rec in recomendaciones:
+            st.write(f"- {rec}")
+        
+        # Permitir descarga de la asignación de clusters
+        st.markdown("---")
+        st.subheader("📥 Descargar resultados")
+        resultado_clusters = df[feature_cols].copy()
+        resultado_clusters["Cluster"] = clusters
+        csv_clusters = resultado_clusters.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Descargar CSV con asignación de clusters",
+            data=csv_clusters,
+            file_name=f"kmeans_k{k}_clusters.csv",
+            mime="text/csv"
+        )
+        
+    else:
+        st.info("Selecciona al menos dos variables numéricas para aplicar k-means.")
+
+# === VISTA DBSCAN CLUSTERING ===
+elif analisis == "DBSCAN (Clustering)" and df is not None:
+    st.title("DBSCAN: Agrupamiento basado en densidad")
+    with st.expander("ℹ️ ¿Qué es DBSCAN? Fundamentos, ventajas y diferencias con K-means", expanded=True):
+        st.markdown("""
+        **DBSCAN** (Density-Based Spatial Clustering of Applications with Noise) es un algoritmo de agrupamiento no supervisado que identifica grupos de puntos densos y separa el ruido (outliers).
+        
+        **Ventajas:**
+        - No requiere especificar el número de clusters.
+        - Detecta clusters de cualquier forma y tamaño.
+        - Identifica puntos de ruido automáticamente.
+        - Ideal para datos con formas complejas o presencia de outliers.
+        
+        **¿Cómo funciona?**
+        1. Busca puntos con al menos un número mínimo de vecinos (MinPts) dentro de una distancia (epsilon).
+        2. Los puntos densos forman clusters; los puntos aislados se marcan como ruido.
+        3. Los clusters se expanden conectando puntos densos y sus vecinos.
+        
+        **Parámetros clave:**
+        - **epsilon (eps)**: distancia máxima entre puntos vecinos.
+        - **min_samples (MinPts)**: mínimo de puntos para formar un cluster.
+        
+        **Diferencias con K-means:**
+        - K-means requiere número de clusters y asume formas esféricas.
+        - DBSCAN detecta clusters arbitrarios y no necesita número de clusters.
+        - DBSCAN identifica outliers, K-means no.
+        """)
+
+    columnas = df.columns.tolist()
+    nombres_clase = ["clase", "class", "target", "etiqueta", "label"]
+    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c]) and c.strip().lower() not in nombres_clase]
+    feature_cols = st.multiselect(
+        "Selecciona las columnas numéricas para clustering (sin la clase):",
+        num_cols,
+        default=num_cols,
+        key="features_dbscan"
+    )
+
+    if feature_cols and len(feature_cols) >= 2:
+        X = df[feature_cols]
+        if X.isnull().values.any():
+            st.warning("Se encontraron valores faltantes. Imputando con la media...")
+            X = X.fillna(X.mean())
         from sklearn.preprocessing import StandardScaler
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
-        # Selección de k
-        k = st.slider("Selecciona el número de clusters (k)", min_value=2, max_value=10, value=3, step=1)
-        # Entrenamiento
-        from sklearn.cluster import KMeans
-        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
-        clusters = kmeans.fit_predict(X_scaled)
-        st.write(f"#### Asignación de clusters (primeras 10 filas):")
-        st.dataframe(pd.DataFrame({"Cluster": clusters[:10]}, index=df.index[:10]))
-        # Visualización 2D si hay al menos 2 features
-        import plotly.express as px
-        if len(feature_cols) >= 2:
-            fig = px.scatter(
-                x=X[feature_cols[0]], y=X[feature_cols[1]], color=clusters.astype(str),
-                labels={"x": feature_cols[0], "y": feature_cols[1], "color": "Cluster"},
-                title="Visualización de clusters (2 primeras variables)"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        # Método del codo
+
+        # === DETECCIÓN AUTOMÁTICA DEL EPSILON ÓPTIMO ===
         st.markdown("---")
-        st.subheader("Método del codo para elegir k óptimo")
-        inertia = []
-        ks = range(1, 11)
-        for ki in ks:
-            km = KMeans(n_clusters=ki, n_init=10, random_state=42)
-            km.fit(X_scaled)
-            inertia.append(km.inertia_)
-        import matplotlib.pyplot as plt
-        fig2, ax2 = plt.subplots()
-        ax2.plot(ks, inertia, '-o')
-        ax2.set_xlabel('k (número de clusters)')
-        ax2.set_ylabel('Inercia (WCSS)')
-        ax2.set_title('Método del codo')
-        st.pyplot(fig2)
-        st.caption("Elige el k donde la curva deja de bajar abruptamente (el 'codo').")
-        st.info("Esta es una vista inicial. Puedes agregar silhouette, visualización 3D, interpretación, etc. más adelante.")
+        st.subheader("🔍 Detección automática de epsilon óptimo (gráfico de k-distancia)")
+        
+        with st.expander("💡 ¿Cómo elegir el parámetro epsilon? (Ayuda)", expanded=False):
+            st.markdown("""
+            ### 🤔 ¿Cómo elegir el parámetro epsilon?
+            
+            **El parámetro epsilon (eps)** determina la distancia máxima entre dos puntos para que sean considerados vecinos.
+            
+            **Método recomendado: Gráfico de k-distancia**
+            1. Calcula la distancia al k-ésimo vecino más cercano para cada punto (donde k = min_samples).
+            2. Ordena estas distancias en orden ascendente.
+            3. Busca el "codo" en el gráfico (donde la curva empieza a nivelarse).
+            4. El valor de epsilon en el codo es una buena elección.
+            
+            **Interpretación:**
+            - Si epsilon es muy pequeño: muchos puntos serán ruido.
+            - Si epsilon es muy grande: todos los puntos formarán un solo cluster.
+            - El codo representa un equilibrio óptimo entre clusters y ruido.
+            """)
+        
+        from sklearn.neighbors import NearestNeighbors
+        
+        with st.spinner("Calculando gráfico de k-distancia..."):
+            k_temp = st.slider("MinPts temporal para el gráfico de k-distancia", min_value=2, max_value=20, value=5, step=1, key="k_temp_dbscan")
+            
+            neigh = NearestNeighbors(n_neighbors=k_temp)
+            neigh.fit(X_scaled)
+            distances, _ = neigh.kneighbors(X_scaled)
+            k_distances = np.sort(distances[:, k_temp-1])
+            
+            def find_elbow_kdist(distances):
+                """Encuentra el punto del codo en el gráfico de k-distancia"""
+                if len(distances) < 3:
+                    return distances[len(distances)//2]
+                x = np.arange(len(distances))
+                y = distances
+                first_derivative = np.diff(y)
+                second_derivative = np.diff(first_derivative)
+                elbow_idx = np.argmax(second_derivative) + 2
+                elbow_idx = min(elbow_idx, len(distances) - 1)
+                return distances[elbow_idx]
+            
+            eps_sugerido = find_elbow_kdist(k_distances)
+            
+            import plotly.graph_objects as go
+            fig_kdist = go.Figure()
+            fig_kdist.add_trace(go.Scatter(
+                x=list(range(len(k_distances))),
+                y=k_distances,
+                mode='lines',
+                name='K-distancia',
+                line=dict(color='#4f8cff', width=2)
+            ))
+            
+            elbow_idx = np.where(k_distances >= eps_sugerido)[0]
+            if len(elbow_idx) > 0:
+                elbow_idx = elbow_idx[0]
+                fig_kdist.add_trace(go.Scatter(
+                    x=[elbow_idx],
+                    y=[eps_sugerido],
+                    mode='markers',
+                    name=f'Epsilon sugerido: {eps_sugerido:.3f}',
+                    marker=dict(size=15, color='#2ecc71', symbol='star')
+                ))
+                fig_kdist.add_hline(
+                    y=eps_sugerido,
+                    line_dash="dash",
+                    line_color="#2ecc71",
+                    annotation_text=f"Epsilon sugerido: {eps_sugerido:.3f}",
+                    annotation_position="right"
+                )
+            
+            fig_kdist.update_layout(
+                title="Gráfico de k-distancia - Selección de epsilon",
+                xaxis_title="Puntos (ordenados)",
+                yaxis_title=f"{k_temp}-ésima distancia al vecino más cercano",
+                hovermode='x unified',
+                height=400
+            )
+            
+            st.plotly_chart(fig_kdist, use_container_width=True)
+            st.success(f"🎯 **Epsilon sugerido automáticamente: {eps_sugerido:.3f}** (puedes ajustarlo manualmente abajo)")
+
+        st.markdown("---")
+        st.subheader("⚙️ Parámetros de DBSCAN")
+        
+        # Ajustar epsilon sugerido si es muy alto para datos escalados
+        eps_ajustado = min(eps_sugerido, 3.0)  # Limitar a 3.0 para datos escalados
+        if eps_sugerido > 3.0:
+            st.warning(f"⚠️ El epsilon sugerido ({eps_sugerido:.3f}) es muy alto para datos escalados. Se ajustó a {eps_ajustado:.3f}. Prueba valores entre 0.1 y 2.0 para datos normalizados.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            eps = st.slider(
+                "Epsilon (eps) - distancia máxima entre vecinos", 
+                min_value=0.01, 
+                max_value=3.0, 
+                value=float(eps_ajustado), 
+                step=0.01,
+                help=f"Valor sugerido: {eps_ajustado:.3f}. Para datos escalados, valores típicos están entre 0.1 y 2.0"
+            )
+        with col2:
+            min_samples = st.slider(
+                "MinPts - mínimo de puntos por cluster", 
+                min_value=2, 
+                max_value=20, 
+                value=k_temp, 
+                step=1,
+                help="Regla general: 2 * número de dimensiones"
+            )
+
+        st.markdown("---")
+        st.subheader("🔍 Ejecución de DBSCAN y visualización de clusters")
+        from sklearn.cluster import DBSCAN
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+        clusters = dbscan.fit_predict(X_scaled)
+
+        n_clusters = len(set(clusters)) - (1 if -1 in clusters else 0)
+        n_noise = list(clusters).count(-1)
+
+        st.success(f"**Clusters encontrados:** {n_clusters}")
+        st.info(f"**Puntos de ruido (outliers):** {n_noise}")
+
+        import plotly.graph_objects as go
+        colores_clusters = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA15E', '#BC6C25', '#B8B8FF', '#FFB8B8', '#B8FFB8']
+
+        tipo_viz = st.radio(
+            "Selecciona el tipo de visualización:",
+            ["2D (2 variables)", "3D (3 variables)"] if len(feature_cols) >= 3 else ["2D (2 variables)"],
+            horizontal=True
+        )
+
+        if tipo_viz == "3D (3 variables)" and len(feature_cols) >= 3:
+            st.write("**Elige manualmente las 3 variables para visualizar:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                var_x = st.selectbox("Eje X:", feature_cols, key="dbscan_var_x_3d")
+            with col2:
+                var_y = st.selectbox("Eje Y:", feature_cols, key="dbscan_var_y_3d")
+            with col3:
+                var_z = st.selectbox("Eje Z:", feature_cols, key="dbscan_var_z_3d")
+            
+            fig3d = go.Figure()
+            for cluster_id in set(clusters):
+                mask = clusters == cluster_id
+                color = 'gray' if cluster_id == -1 else colores_clusters[cluster_id % len(colores_clusters)]
+                fig3d.add_trace(go.Scatter3d(
+                    x=X[var_x][mask],
+                    y=X[var_y][mask],
+                    z=X[var_z][mask],
+                    mode='markers',
+                    name=f'Ruido' if cluster_id == -1 else f'Cluster {cluster_id}',
+                    marker=dict(
+                        size=7,
+                        color=color,
+                        opacity=0.7,
+                        line=dict(width=0.5, color='white')
+                    )
+                ))
+            fig3d.update_layout(
+                title=f"Visualización 3D de clusters DBSCAN",
+                scene=dict(xaxis_title=var_x, yaxis_title=var_y, zaxis_title=var_z),
+                height=600,
+                showlegend=True
+            )
+            st.plotly_chart(fig3d, use_container_width=True)
+        else:
+            st.write("**Elige manualmente las 2 variables para visualizar:**")
+            col1, col2 = st.columns(2)
+            with col1:
+                var_x = st.selectbox("Eje X:", feature_cols, key="dbscan_var_x_2d")
+            with col2:
+                var_y = st.selectbox("Eje Y:", feature_cols, key="dbscan_var_y_2d")
+            
+            fig2d = go.Figure()
+            # Paleta de colores saturados y contrastantes
+            colores_clusters_viz = [
+                '#E74C3C',  # Rojo
+                '#2980B9',  # Azul
+                '#F39C12',  # Naranja
+                '#8E44AD',  # Púrpura
+                '#FFD700',  # Amarillo
+                '#D35400',  # Naranja oscuro
+                '#34495E',  # Azul oscuro
+                '#1ABC9C',  # Turquesa
+                '#C0392B',  # Rojo oscuro
+                '#7F8C8D',  # Gris
+                '#00FF00',  # Verde neón
+                '#FF00FF',  # Magenta
+                '#FF1493',  # Rosa fuerte
+                '#00CED1',  # Azul claro saturado
+                '#FF4500',  # Rojo anaranjado
+            ]
+            for idx, cluster_id in enumerate(sorted(set(clusters))):
+                mask = clusters == cluster_id
+                if cluster_id == -1:
+                    color = '#444444'  # Ruido: gris oscuro
+                else:
+                    color = colores_clusters_viz[idx % len(colores_clusters_viz)]
+                fig2d.add_trace(go.Scatter(
+                    x=X[var_x][mask],
+                    y=X[var_y][mask],
+                    mode='markers',
+                    name=f'Ruido' if cluster_id == -1 else f'Cluster {cluster_id}',
+                    marker=dict(
+                        size=8,
+                        color=color,
+                        opacity=0.85,
+                        line=dict(width=1, color='white')
+                    )
+                ))
+            fig2d.update_layout(
+                title=f"Visualización 2D de clusters DBSCAN",
+                xaxis_title=var_x,
+                yaxis_title=var_y,
+                height=500,
+                showlegend=True,
+                hovermode='closest'
+            )
+            st.plotly_chart(fig2d, use_container_width=True)
+
+        st.info("💡 Los puntos grises representan ruido (outliers) detectados por DBSCAN. Los clusters se muestran en colores distintos.")
+
+        # === MÉTRICAS DE CALIDAD DEL CLUSTERING ===
+        st.markdown("---")
+        st.subheader("📈 Métricas de calidad del clustering")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Clusters encontrados", 
+                n_clusters,
+                help="Número de clusters identificados (sin contar el ruido)"
+            )
+        with col2:
+            st.metric(
+                "Puntos de ruido", 
+                n_noise,
+                help="Número de puntos clasificados como outliers"
+            )
+        with col3:
+            porcentaje_ruido = (n_noise / len(clusters)) * 100
+            st.metric(
+                "% de ruido", 
+                f"{porcentaje_ruido:.1f}%",
+                help="Porcentaje de puntos clasificados como ruido"
+            )
+        
+        if n_clusters > 1 and n_noise < len(clusters) - 1:
+            from sklearn.metrics import silhouette_score
+            mask_no_noise = clusters != -1
+            if mask_no_noise.sum() > n_clusters:
+                sil_score = silhouette_score(X_scaled[mask_no_noise], clusters[mask_no_noise])
+                with col4:
+                    st.metric(
+                        "Silhouette", 
+                        f"{sil_score:.3f}",
+                        help="Rango: [-1, 1]. Valores cercanos a 1 = clusters bien definidos. Solo calculado para puntos no-ruido."
+                    )
+        
+        with st.expander("🔄 Comparación DBSCAN vs K-means", expanded=False):
+            st.markdown("""
+            ### Diferencias clave entre DBSCAN y K-means
+            
+            | Característica | DBSCAN | K-means |
+            |----------------|--------|---------|
+            | **Número de clusters** | No requiere especificarlo | Debes especificarlo |
+            | **Forma de clusters** | Cualquier forma | Esféricos |
+            | **Detección de ruido** | Sí, identifica outliers | No, todos los puntos pertenecen a un cluster |
+            | **Sensibilidad a parámetros** | Sensible a eps y min_samples | Sensible a k y inicialización |
+            | **Escalabilidad** | Moderada | Buena |
+            | **Uso recomendado** | Datos con formas complejas, outliers presentes | Datos con clusters esféricos, sin outliers |
+            
+            **¿Cuándo usar DBSCAN?**
+            - Cuando no conoces el número de clusters.
+            - Cuando los clusters tienen formas irregulares.
+            - Cuando necesitas identificar outliers.
+            - Cuando los clusters tienen densidades variables.
+            
+            **¿Cuándo usar K-means?**
+            - Cuando conoces el número de clusters.
+            - Cuando los clusters son esféricos y de tamaño similar.
+            - Cuando necesitas rapidez en datasets grandes.
+            """)
+            
+            st.markdown("---")
+            st.subheader("📊 Comparación visual: DBSCAN vs K-means")
+            st.info("💡 Esta comparación muestra cómo K-means falla con formas complejas mientras DBSCAN las detecta correctamente.")
+            
+            # Paleta de colores contrastantes y didáctica
+            colores_clusters = [
+                '#E74C3C',  # Rojo
+                '#2980B9',  # Azul
+                '#F39C12',  # Naranja
+                '#8E44AD',  # Púrpura
+                '#27AE60',  # Verde fuerte
+                '#D35400',  # Naranja oscuro
+                '#34495E',  # Azul oscuro
+                '#E67E22',  # Naranja claro
+                '#2ECC71',  # Verde claro
+                '#1ABC9C',  # Turquesa
+                '#C0392B',  # Rojo oscuro
+                '#7F8C8D',  # Gris
+            ]
+            # Ejecutar K-means con el mismo número de clusters que DBSCAN encontró
+            if n_clusters > 0:
+                from sklearn.cluster import KMeans
+                k_for_kmeans = max(2, n_clusters)
+                kmeans_comparativa = KMeans(n_clusters=k_for_kmeans, n_init=10, random_state=42)
+                clusters_kmeans = kmeans_comparativa.fit_predict(X_scaled)
+                # Visualización comparativa 2D
+                if len(feature_cols) >= 2:
+                    st.write(f"**Comparación con las mismas variables ({var_x} vs {var_y}):**")
+                    from plotly.subplots import make_subplots
+                    fig_comp = make_subplots(
+                        rows=1, cols=2,
+                        subplot_titles=("DBSCAN", "K-means"),
+                        horizontal_spacing=0.15
+                    )
+                    # DBSCAN (izquierda)
+                    for cluster_id in set(clusters):
+                        mask = clusters == cluster_id
+                        color = 'gray' if cluster_id == -1 else colores_clusters[cluster_id % len(colores_clusters)]
+                        fig_comp.add_trace(
+                            go.Scatter(
+                                x=X[var_x][mask],
+                                y=X[var_y][mask],
+                                mode='markers',
+                                name=f'Ruido' if cluster_id == -1 else f'C{cluster_id}',
+                                marker=dict(size=8, color=color, opacity=0.8, line=dict(width=1, color='white')),
+                                legendgroup='dbscan',
+                                showlegend=True
+                            ),
+                            row=1, col=1
+                        )
+                    # K-means (derecha)
+                    for cluster_id in range(k_for_kmeans):
+                        mask = clusters_kmeans == cluster_id
+                        fig_comp.add_trace(
+                            go.Scatter(
+                                x=X[var_x][mask],
+                                y=X[var_y][mask],
+                                mode='markers',
+                                name=f'C{cluster_id}',
+                                marker=dict(size=8, color=colores_clusters[cluster_id % len(colores_clusters)], opacity=0.8, line=dict(width=1, color='black')),
+                                legendgroup='kmeans',
+                                showlegend=True
+                            ),
+                            row=1, col=2
+                        )
+                    # Agregar centroides de K-means
+                    centroids = kmeans_comparativa.cluster_centers_
+                    idx_x_scaled = feature_cols.index(var_x)
+                    idx_y_scaled = feature_cols.index(var_y)
+                    centroids_original = scaler.inverse_transform(centroids)
+                    fig_comp.add_trace(
+                        go.Scatter(
+                            x=centroids_original[:, idx_x_scaled],
+                            y=centroids_original[:, idx_y_scaled],
+                            mode='markers',
+                            name='Centroides',
+                            marker=dict(size=22, color='#FFD700', symbol='star', line=dict(width=3, color='black')),
+                            legendgroup='kmeans',
+                            showlegend=True
+                        ),
+                        row=1, col=2
+                    )
+                    fig_comp.update_xaxes(title_text=var_x, row=1, col=1)
+                    fig_comp.update_xaxes(title_text=var_x, row=1, col=2)
+                    fig_comp.update_yaxes(title_text=var_y, row=1, col=1)
+                    fig_comp.update_yaxes(title_text=var_y, row=1, col=2)
+                    fig_comp.update_layout(
+                        height=500,
+                        showlegend=True,
+                        title_text="Comparación: DBSCAN detecta formas complejas, K-means asume círculos"
+                    )
+                    st.plotly_chart(fig_comp, use_container_width=True)
+                    
+                    # Análisis comparativo
+                    st.markdown("#### 🔍 Análisis de la comparación:")
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.markdown(f"""
+                        **DBSCAN:**
+                        - Clusters encontrados: {n_clusters}
+                        - Puntos de ruido: {n_noise} ({porcentaje_ruido:.1f}%)
+                        - Sigue la forma natural de los datos
+                        - No fuerza puntos aislados a clusters
+                        """)
+                    with col_b:
+                        st.markdown(f"""
+                        **K-means:**
+                        - Clusters definidos: {k_for_kmeans}
+                        - Puntos de ruido: 0 (todos asignados)
+                        - Asume clusters esféricos
+                        - Puede dividir incorrectamente formas complejas
+                        """)
+                    
+                    if n_noise > 0:
+                        st.success("✅ **DBSCAN** es más apropiado para este dataset porque detecta outliers y sigue formas no esféricas.")
+                    else:
+                        st.info("ℹ️ Ambos algoritmos pueden funcionar, pero observa si K-means divide correctamente los grupos según su forma natural.")
+            else:
+                st.warning("⚠️ DBSCAN no encontró clusters. Ajusta los parámetros para poder comparar con K-means.")
+
+        st.markdown("---")
+        st.write(f"#### Asignación de clusters (primeras 10 filas):")
+        preview_df = df[feature_cols].head(10).copy()
+        preview_df["Cluster"] = clusters[:10]
+        preview_df["Cluster"] = preview_df["Cluster"].apply(lambda x: "Ruido" if x == -1 else f"Cluster {x}")
+        st.dataframe(preview_df, use_container_width=True)
     else:
-        st.info("Selecciona al menos dos variables numéricas para aplicar k-means.")
+        st.info("Selecciona al menos dos variables numéricas para aplicar DBSCAN.")
+
+# === VISTA CLUSTERING JERÁRQUICO ===
+elif analisis == "Clustering Jerárquico" and df is not None:
+    st.title("Clustering Jerárquico: Agrupamiento basado en distancias y enlaces")
+    with st.expander("ℹ️ ¿Qué es el Clustering Jerárquico? Fundamentos y aplicaciones", expanded=True):
+        st.markdown("""
+        **Clustering Jerárquico** es una técnica de agrupamiento que construye una jerarquía de clusters mediante la fusión o división sucesiva de grupos basados en distancias.
+    
+        **Ventajas:**
+        - No requiere especificar el número de clusters de inicio (puedes elegirlo visualmente en el dendrograma).
+        - Permite visualizar la estructura de los datos y las relaciones entre grupos.
+        - Útil para datos con relaciones jerárquicas o taxonómicas.
+    
+        **¿Cómo funciona?**
+        1. Calcula la matriz de distancias entre todos los puntos.
+        2. Une los puntos/grupos más cercanos en cada paso (enlace simple, completo, promedio, Ward, etc.).
+        3. El proceso continúa hasta que todos los puntos están en un solo cluster.
+        4. El resultado se visualiza como un **dendrograma**.
+    
+        **Parámetros clave:**
+        - **Método de enlace:** determina cómo se calcula la distancia entre grupos (Ward, completo, promedio, simple).
+        - **Distancia:** métrica usada (euclidiana, Manhattan, etc.).
+        """)
+
+    columnas = df.columns.tolist()
+    nombres_clase = ["clase", "class", "target", "etiqueta", "label"]
+    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c]) and c.strip().lower() not in nombres_clase]
+    feature_cols = st.multiselect(
+        "Selecciona las columnas numéricas para clustering (sin la clase):",
+        num_cols,
+        default=num_cols,
+        key="features_hierarchical"
+    )
+
+    if feature_cols and len(feature_cols) >= 2:
+        X = df[feature_cols]
+        if X.isnull().values.any():
+            st.warning("Se encontraron valores faltantes. Imputando con la media...")
+            X = X.fillna(X.mean())
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        st.markdown("---")
+        st.subheader("🌳 Dendrograma jerárquico")
+        metodo_enlace = st.selectbox("Método de enlace", ["ward", "complete", "average", "single"], index=0)
+        import scipy.cluster.hierarchy as sch
+        import matplotlib.pyplot as plt
+        import io
+        fig, ax = plt.subplots(figsize=(8, 4))
+        dendro = sch.dendrogram(
+            sch.linkage(X_scaled, method=metodo_enlace),
+            ax=ax,
+            color_threshold=None
+        )
+        ax.set_title(f"Dendrograma ({metodo_enlace})")
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png")
+        st.image(buf, caption=f"Dendrograma ({metodo_enlace})", use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("---")
+        st.subheader("⚙️ Selección de número de clusters")
+        n_clusters = st.slider("Número de clusters a formar", min_value=2, max_value=min(10, len(X)), value=2)
+        from sklearn.cluster import AgglomerativeClustering
+        agg = AgglomerativeClustering(n_clusters=n_clusters, linkage=metodo_enlace)
+        clusters = agg.fit_predict(X_scaled)
+
+        st.success(f"**Clusters formados:** {n_clusters}")
+
+        tipo_viz = st.radio(
+            "Selecciona el tipo de visualización:",
+            ["2D (2 variables)", "3D (3 variables)"] if len(feature_cols) >= 3 else ["2D (2 variables)"],
+            horizontal=True
+        )
+
+        import plotly.graph_objects as go
+        colores_clusters_viz = [
+            '#E74C3C', '#2980B9', '#F39C12', '#8E44AD', '#FFD700', '#D35400', '#34495E', '#1ABC9C', '#C0392B', '#7F8C8D', '#00FF00', '#FF00FF', '#FF1493', '#00CED1', '#FF4500'
+        ]
+        if tipo_viz == "3D (3 variables)" and len(feature_cols) >= 3:
+            st.write("**Elige manualmente las 3 variables para visualizar:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                var_x = st.selectbox("Eje X:", feature_cols, key="hierarchical_var_x_3d")
+            with col2:
+                var_y = st.selectbox("Eje Y:", feature_cols, key="hierarchical_var_y_3d")
+            with col3:
+                var_z = st.selectbox("Eje Z:", feature_cols, key="hierarchical_var_z_3d")
+            fig3d = go.Figure()
+            for idx, cluster_id in enumerate(sorted(set(clusters))):
+                mask = clusters == cluster_id
+                color = colores_clusters_viz[idx % len(colores_clusters_viz)]
+                fig3d.add_trace(go.Scatter3d(
+                    x=X[var_x][mask],
+                    y=X[var_y][mask],
+                    z=X[var_z][mask],
+                    mode='markers',
+                    name=f'Cluster {cluster_id}',
+                    marker=dict(size=7, color=color, opacity=0.7, line=dict(width=0.5, color='white'))
+                ))
+            fig3d.update_layout(
+                title=f"Visualización 3D de clusters jerárquicos",
+                scene=dict(xaxis_title=var_x, yaxis_title=var_y, zaxis_title=var_z),
+                height=600,
+                showlegend=True
+            )
+            st.plotly_chart(fig3d, use_container_width=True)
+        else:
+            st.write("**Elige manualmente las 2 variables para visualizar:**")
+            col1, col2 = st.columns(2)
+            with col1:
+                var_x = st.selectbox("Eje X:", feature_cols, key="hierarchical_var_x_2d")
+            with col2:
+                var_y = st.selectbox("Eje Y:", feature_cols, key="hierarchical_var_y_2d")
+            fig2d = go.Figure()
+            for idx, cluster_id in enumerate(sorted(set(clusters))):
+                mask = clusters == cluster_id
+                color = colores_clusters_viz[idx % len(colores_clusters_viz)]
+                fig2d.add_trace(go.Scatter(
+                    x=X[var_x][mask],
+                    y=X[var_y][mask],
+                    mode='markers',
+                    name=f'Cluster {cluster_id}',
+                    marker=dict(size=8, color=color, opacity=0.85, line=dict(width=1, color='white'))
+                ))
+            fig2d.update_layout(
+                title=f"Visualización 2D de clusters jerárquicos",
+                xaxis_title=var_x,
+                yaxis_title=var_y,
+                height=500,
+                showlegend=True,
+                hovermode='closest'
+            )
+            st.plotly_chart(fig2d, use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("📈 Métrica de calidad del clustering (Silhouette)")
+        from sklearn.metrics import silhouette_score
+        if n_clusters > 1:
+            sil_score = silhouette_score(X_scaled, clusters)
+            st.metric(
+                "Silhouette", 
+                f"{sil_score:.3f}",
+                help="Rango: [-1, 1]. Valores cercanos a 1 = clusters bien definidos."
+            )
+        st.write(f"#### Asignación de clusters (primeras 10 filas):")
+        preview_df = df[feature_cols].head(10).copy()
+        preview_df["Cluster"] = clusters[:10]
+        preview_df["Cluster"] = preview_df["Cluster"].apply(lambda x: f"Cluster {x}")
+        st.dataframe(preview_df, use_container_width=True)
+    else:
+        st.info("Selecciona al menos dos variables numéricas para aplicar clustering jerárquico.")
 
 elif df is not None:
 
@@ -2674,18 +3839,6 @@ elif df is not None:
 
     # ================= VISTA DEDICADA: BAYES INGENUO =================
     if analisis == "Bayes Ingenuo":
-        st.header("Clasificación Bayes Ingenuo")
-        with st.expander("¿Qué es Bayes Ingenuo? (Explicación teórica, práctica y predicción por clase)", expanded=True):
-            st.markdown(TEXTO_BAYES)
-        # Selección de variables igual que en LDA/QDA
-        # Usar nombres descriptivos y columna de clase definidos globalmente
-        columnas = df.columns.tolist()
-        num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c])]
-        target_col = st.session_state.get("target_col_global")
-        clase_labels_global = st.session_state.get("clase_labels_global", {})
-        if not target_col or target_col not in df.columns:
-            st.error("No hay columna de clase válida seleccionada. Elige una columna de clase en el panel lateral.")
-        else:
             st.write("#### Valores únicos de la clase:")
             conteo_clase = df[target_col].value_counts().sort_index()
             st.dataframe(pd.DataFrame({"Valor de clase": [clase_labels_global.get(v, str(v)) for v in conteo_clase.index], "Cantidad": conteo_clase.values}), width='stretch')
