@@ -3703,26 +3703,127 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         X_scaled = scaler.fit_transform(X)
 
         st.markdown("---")
-        st.subheader("🌳 Dendrograma jerárquico")
-        metodo_enlace = st.selectbox("Método de enlace", ["ward", "complete", "average", "single"], index=0)
+        st.subheader("🌳 Dendrograma jerárquico interactivo")
+        
+        col_metodo, col_orientacion = st.columns([2, 1])
+        with col_metodo:
+            metodo_enlace = st.selectbox("Método de enlace", ["ward", "complete", "average", "single"], index=0, 
+                                         help="Ward: minimiza varianza intra-cluster. Complete: distancia máxima. Average: distancia promedio. Single: distancia mínima.")
+        with col_orientacion:
+            orientacion_dendro = st.selectbox("Orientación", ["vertical", "horizontal"], index=0)
+        
         import scipy.cluster.hierarchy as sch
-        import matplotlib.pyplot as plt
-        import io
-        fig, ax = plt.subplots(figsize=(8, 4))
-        dendro = sch.dendrogram(
-            sch.linkage(X_scaled, method=metodo_enlace),
-            ax=ax,
-            color_threshold=None
-        )
-        ax.set_title(f"Dendrograma ({metodo_enlace})")
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png")
-        st.image(buf, caption=f"Dendrograma ({metodo_enlace})", use_container_width=True)
-        plt.close(fig)
+        import plotly.figure_factory as ff
+        
+        # Calcular matriz de enlaces
+        linkage_matrix = sch.linkage(X_scaled, method=metodo_enlace)
+        
+        # Crear dendrograma interactivo con Plotly (sin color_threshold por ahora)
+        if orientacion_dendro == "vertical":
+            fig_dendro = ff.create_dendrogram(
+                X_scaled,
+                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace),
+                orientation='bottom',
+                labels=[f"Obs {i}" for i in range(len(X_scaled))]
+            )
+            fig_dendro.update_layout(
+                title=f"Dendrograma jerárquico ({metodo_enlace})",
+                xaxis_title="Observaciones",
+                yaxis_title="Distancia",
+                height=500,
+                showlegend=False,
+                hovermode='closest',
+                plot_bgcolor=colores['plot_bg'],
+                paper_bgcolor=colores['fondo_secundario'],
+                font=dict(color=colores['texto'], size=12)
+            )
+        else:
+            fig_dendro = ff.create_dendrogram(
+                X_scaled,
+                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace),
+                orientation='left',
+                labels=[f"Obs {i}" for i in range(len(X_scaled))]
+            )
+            fig_dendro.update_layout(
+                title=f"Dendrograma jerárquico ({metodo_enlace})",
+                xaxis_title="Distancia",
+                yaxis_title="Observaciones",
+                height=max(600, len(X_scaled) * 15),
+                showlegend=False,
+                hovermode='closest',
+                plot_bgcolor=colores['plot_bg'],
+                paper_bgcolor=colores['fondo_secundario'],
+                font=dict(color=colores['texto'], size=12)
+            )
+        
+        fig_dendro.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+        fig_dendro.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+        
+        st.plotly_chart(fig_dendro, use_container_width=True)
+        
+        st.info("""
+        💡 **Cómo interpretar el dendrograma:**
+        - Cada línea vertical (u horizontal si está rotado) representa la fusión de dos clusters.
+        - La altura de la fusión indica la distancia entre los clusters fusionados.
+        - Clusters que se fusionan a mayor altura son más distantes.
+        - Puedes identificar visualmente el número óptimo de clusters buscando fusiones con grandes saltos en la distancia.
+        """)
+        
+        # Sugerencia automática de número de clusters basado en el análisis de distancias
+        with st.expander("🔍 Análisis automático: Sugerencia de número óptimo de clusters", expanded=False):
+            st.markdown("""
+            Este análisis busca el número de clusters donde hay un **salto grande** en las distancias de fusión,
+            indicando que fusionar más clusters sería forzar la unión de grupos muy diferentes.
+            """)
+            
+            # Calcular diferencias entre fusiones consecutivas
+            last_merges = linkage_matrix[-10:, 2]  # Últimas 10 fusiones
+            differences = np.diff(last_merges)
+            
+            # Encontrar el salto más grande
+            max_diff_idx = np.argmax(differences)
+            sugerencia_clusters = len(last_merges) - max_diff_idx
+            
+            # Graficar evolución de distancias
+            import plotly.graph_objects as go
+            fig_distances = go.Figure()
+            fig_distances.add_trace(go.Scatter(
+                x=list(range(2, min(12, len(linkage_matrix) + 2))),
+                y=linkage_matrix[-10:, 2] if len(linkage_matrix) >= 10 else linkage_matrix[:, 2],
+                mode='lines+markers',
+                name='Distancia de fusión',
+                line=dict(color=colores['acento'], width=3),
+                marker=dict(size=10, color=colores['acento'])
+            ))
+            
+            fig_distances.add_vline(
+                x=sugerencia_clusters,
+                line_dash="dash",
+                line_color=colores['exito'],
+                annotation_text=f"Sugerencia: {sugerencia_clusters} clusters",
+                annotation_position="top"
+            )
+            
+            fig_distances.update_layout(
+                title="Evolución de distancias de fusión (últimas 10 fusiones)",
+                xaxis_title="Número de clusters",
+                yaxis_title="Distancia de fusión",
+                height=400,
+                hovermode='x unified',
+                plot_bgcolor=colores['plot_bg'],
+                paper_bgcolor=colores['fondo_secundario'],
+                font=dict(color=colores['texto'])
+            )
+            fig_distances.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+            fig_distances.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+            
+            st.plotly_chart(fig_distances, use_container_width=True)
+            st.success(f"📊 **Número de clusters sugerido: {sugerencia_clusters}** (basado en el mayor salto en distancias de fusión)")
+            st.caption("Nota: Esta es una sugerencia automática. Observa el dendrograma y los resultados para validar.")
 
         st.markdown("---")
         st.subheader("⚙️ Selección de número de clusters")
-        n_clusters = st.slider("Número de clusters a formar", min_value=2, max_value=min(10, len(X)), value=2)
+        n_clusters = st.slider("Número de clusters a formar", min_value=2, max_value=min(10, len(X)), value=sugerencia_clusters if 'sugerencia_clusters' in locals() else 2)
         from sklearn.cluster import AgglomerativeClustering
         agg = AgglomerativeClustering(n_clusters=n_clusters, linkage=metodo_enlace)
         clusters = agg.fit_predict(X_scaled)
