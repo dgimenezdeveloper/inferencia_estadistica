@@ -1668,9 +1668,10 @@ elif analisis == "Exploración de datos" and df is not None:
 
 # === Comparativa de Modelos ===
 elif analisis == "Comparativa de Modelos" and df is not None:
-    st.title("🏆 Comparativa de Modelos: LDA, QDA, Bayes, SVM (con y sin PCA)")
+    st.title("🏆 Comparativa de Modelos: LDA, QDA, Bayes, SVM, Regresión Logística (con y sin PCA)")
     st.markdown("""
-    Esta vista entrena y evalúa automáticamente los principales algoritmos de clasificación sobre tu dataset, con y sin reducción de dimensionalidad (PCA).
+    Esta vista entrena y evalúa automáticamente los principales algoritmos de clasificación supervisada sobre tu dataset, con y sin reducción de dimensionalidad (PCA).
+    Ahora incluye **Regresión Logística** junto a LDA, QDA, Bayes Ingenuo y SVM (linear y RBF).
     Se muestran métricas comparativas, justificación automática y conclusiones para ayudarte a elegir el mejor modelo.
     """)
 
@@ -1707,13 +1708,16 @@ elif analisis == "Comparativa de Modelos" and df is not None:
             n_comp = np.argmax(var_cumsum >= pca_var) + 1
             X_pca_final = X_pca[:, :n_comp]
 
-            # Modelos a comparar
+
+            # Modelos a comparar (agregando solo Regresión Logística)
+            from sklearn.linear_model import LogisticRegression
             modelos = {
                 "LDA": LDA(),
                 "QDA": QDA(),
                 "Bayes Ingenuo": GaussianNB(),
                 "SVM Linear": SVC(kernel="linear", probability=True, random_state=42),
-                "SVM RBF": SVC(kernel="rbf", probability=True, random_state=42)
+                "SVM RBF": SVC(kernel="rbf", probability=True, random_state=42),
+                "Regresión Logística": LogisticRegression(max_iter=500, multi_class='auto', solver='lbfgs')
             }
 
             resultados = []
@@ -3683,51 +3687,241 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         - **Distancia:** métrica usada (euclidiana, Manhattan, etc.).
         """)
 
+    # ============== PREPROCESAMIENTO AVANZADO ==============
+    st.markdown("---")
+    st.subheader("🔧 Preprocesamiento de datos")
+    
+    # Análisis automático del dataset
     columnas = df.columns.tolist()
+    cat_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
     nombres_clase = ["clase", "class", "target", "etiqueta", "label"]
     num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c]) and c.strip().lower() not in nombres_clase]
+    
+    # Sugerencias automáticas
+    sugerencias = []
+    if len(cat_cols) > 0:
+        sugerencias.append(f"📊 Se detectaron {len(cat_cols)} variables categóricas: {', '.join(cat_cols[:3])}{'...' if len(cat_cols) > 3 else ''}")
+    if len(num_cols) > 10:
+        sugerencias.append(f"📈 Tienes {len(num_cols)} variables numéricas. PCA puede ayudar a reducir dimensionalidad.")
+    
+    # Calcular correlación para sugerir PCA
+    if len(num_cols) >= 2:
+        corr_matrix = df[num_cols].corr().abs()
+        high_corr_pairs = 0
+        for i in range(len(corr_matrix.columns)):
+            for j in range(i+1, len(corr_matrix.columns)):
+                if corr_matrix.iloc[i, j] > 0.8:
+                    high_corr_pairs += 1
+        if high_corr_pairs > 0:
+            sugerencias.append(f"🔗 Se detectaron {high_corr_pairs} pares de variables altamente correlacionadas (>0.8). PCA es recomendable.")
+    
+    if sugerencias:
+        with st.expander("💡 Sugerencias automáticas de preprocesamiento", expanded=True):
+            for sug in sugerencias:
+                st.info(sug)
+    
+    # Opciones de preprocesamiento
+    col_prep1, col_prep2, col_prep3 = st.columns(3)
+    
+    with col_prep1:
+        convertir_categoricas = st.checkbox(
+            "Convertir variables categóricas a numéricas",
+            value=len(cat_cols) > 0,
+            help="Convierte variables categóricas usando One-Hot Encoding"
+        )
+    
+    with col_prep2:
+        aplicar_escalado = st.checkbox(
+            "Aplicar escalado (StandardScaler)",
+            value=True,
+            help="Estandariza las variables a media=0 y desviación=1"
+        )
+    
+    with col_prep3:
+        aplicar_pca_prep = st.checkbox(
+            "Aplicar PCA (reducción de dimensionalidad)",
+            value=False,
+            help="Reduce dimensionalidad preservando la varianza"
+        )
+    
+    if aplicar_pca_prep:
+        varianza_explicada_pca = st.slider(
+            "Varianza mínima a preservar con PCA (%)",
+            min_value=70, max_value=99, value=85, step=5,
+            help="Porcentaje mínimo de varianza que deben explicar los componentes principales"
+        )
+    
+    # Procesamiento del dataset
+    df_procesado = df.copy()
+    
+    # Convertir categóricas si es necesario
+    if convertir_categoricas and len(cat_cols) > 0:
+        st.info(f"🔄 Convirtiendo {len(cat_cols)} variables categóricas...")
+        df_procesado = pd.get_dummies(df_procesado, columns=cat_cols, drop_first=True)
+        st.success(f"✅ Variables categóricas convertidas. Nuevas columnas: {df_procesado.shape[1] - df.shape[1] + len(cat_cols)}")
+    
+    # Actualizar lista de columnas numéricas después de la conversión
+    num_cols_actualizado = [c for c in df_procesado.columns if pd.api.types.is_numeric_dtype(df_procesado[c]) and c.strip().lower() not in nombres_clase]
+    
     feature_cols = st.multiselect(
-        "Selecciona las columnas numéricas para clustering (sin la clase):",
-        num_cols,
-        default=num_cols,
+        "Selecciona las columnas para clustering:",
+        num_cols_actualizado,
+        default=num_cols_actualizado[:min(10, len(num_cols_actualizado))],
         key="features_hierarchical"
     )
 
     if feature_cols and len(feature_cols) >= 2:
-        X = df[feature_cols]
+        X = df_procesado[feature_cols].copy()
+        
+        # Manejo de valores nulos
         if X.isnull().values.any():
-            st.warning("Se encontraron valores faltantes. Imputando con la media...")
+            st.warning("⚠️ Se encontraron valores faltantes. Imputando con la media...")
             X = X.fillna(X.mean())
+        
+        # Variables para tracking de transformaciones
+        X_original = X.copy()
+        transformaciones_aplicadas = []
+        
+        # Escalado
         from sklearn.preprocessing import StandardScaler
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        if aplicar_escalado:
+            scaler = StandardScaler()
+            X_scaled = pd.DataFrame(
+                scaler.fit_transform(X),
+                columns=X.columns,
+                index=X.index
+            )
+            transformaciones_aplicadas.append("Escalado (StandardScaler)")
+        else:
+            X_scaled = X.copy()
+            scaler = None
+        
+        # PCA si está activado
+        pca_model = None
+        columnas_finales = feature_cols.copy()
+        if aplicar_pca_prep:
+            from sklearn.decomposition import PCA
+            # Determinar número de componentes
+            pca_temp = PCA()
+            pca_temp.fit(X_scaled)
+            var_acum = np.cumsum(pca_temp.explained_variance_ratio_)
+            n_componentes = np.argmax(var_acum >= (varianza_explicada_pca / 100)) + 1
+            
+            # Aplicar PCA con el número óptimo de componentes
+            pca_model = PCA(n_components=n_componentes)
+            X_pca = pca_model.fit_transform(X_scaled)
+            X_scaled = pd.DataFrame(
+                X_pca,
+                columns=[f"PC{i+1}" for i in range(n_componentes)],
+                index=X.index
+            )
+            columnas_finales = X_scaled.columns.tolist()
+            transformaciones_aplicadas.append(f"PCA ({n_componentes} componentes, {var_acum[n_componentes-1]*100:.1f}% varianza)")
+            
+            st.success(f"✅ PCA aplicado: {n_componentes} componentes explican {var_acum[n_componentes-1]*100:.1f}% de la varianza")
+            
+            # Mostrar varianza por componente
+            with st.expander("📊 Varianza explicada por componente principal"):
+                import plotly.graph_objects as go
+                fig_var = go.Figure()
+                fig_var.add_trace(go.Bar(
+                    x=[f"PC{i+1}" for i in range(n_componentes)],
+                    y=pca_model.explained_variance_ratio_ * 100,
+                    name='Varianza individual',
+                    marker_color=colores['acento']
+                ))
+                fig_var.add_trace(go.Scatter(
+                    x=[f"PC{i+1}" for i in range(n_componentes)],
+                    y=np.cumsum(pca_model.explained_variance_ratio_) * 100,
+                    name='Varianza acumulada',
+                    mode='lines+markers',
+                    marker=dict(color=colores['exito'], size=10),
+                    line=dict(color=colores['exito'], width=3)
+                ))
+                fig_var.update_layout(
+                    title="Varianza explicada por cada componente principal",
+                    xaxis_title="Componente",
+                    yaxis_title="Varianza explicada (%)",
+                    height=400
+                )
+                st.plotly_chart(fig_var, use_container_width=True)
+        
+        # Mostrar resumen de preprocesamiento
+        if transformaciones_aplicadas:
+            st.markdown("---")
+            st.markdown("### 📋 Resumen de preprocesamiento aplicado")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Variables originales", len(feature_cols))
+            with col2:
+                st.metric("Variables finales", X_scaled.shape[1])
+            with col3:
+                st.metric("Observaciones", X_scaled.shape[0])
+            
+            st.caption("**Transformaciones aplicadas:** " + " → ".join(transformaciones_aplicadas))
 
         st.markdown("---")
         st.subheader("🌳 Dendrograma jerárquico interactivo")
-        
-        col_metodo, col_orientacion = st.columns([2, 1])
+
+        col_metodo, col_metric, col_orientacion = st.columns([2, 2, 1])
         with col_metodo:
-            metodo_enlace = st.selectbox("Método de enlace", ["ward", "complete", "average", "single"], index=0, 
-                                         help="Ward: minimiza varianza intra-cluster. Complete: distancia máxima. Average: distancia promedio. Single: distancia mínima.")
+            metodo_enlace = st.selectbox(
+                "Método de enlace",
+                ["ward", "complete", "average", "single"],
+                index=0,
+                help="Ward: minimiza varianza intra-cluster. Complete: distancia máxima. Average: distancia promedio. Single: distancia mínima."
+            )
+        with col_metric:
+            metricas_disp = ["euclidean", "manhattan", "cosine", "correlation"]
+            if metodo_enlace == "ward":
+                metrica_dist = "euclidean"
+                st.selectbox(
+                    "Métrica de distancia",
+                    metricas_disp,
+                    index=0,
+                    key="metric_hierarchical",
+                    disabled=True,
+                    help="Ward solo permite distancia euclidiana."
+                )
+                st.warning("El método 'ward' solo permite la métrica 'euclidean'.")
+            else:
+                metrica_dist = st.selectbox(
+                    "Métrica de distancia",
+                    metricas_disp,
+                    index=0,
+                    key="metric_hierarchical",
+                    help="Elige la métrica de distancia para calcular la similitud entre observaciones."
+                )
         with col_orientacion:
             orientacion_dendro = st.selectbox("Orientación", ["vertical", "horizontal"], index=0)
-        
+
         import scipy.cluster.hierarchy as sch
         import plotly.figure_factory as ff
-        
-        # Calcular matriz de enlaces
-        linkage_matrix = sch.linkage(X_scaled, method=metodo_enlace)
-        
-        # Crear dendrograma interactivo con Plotly (sin color_threshold por ahora)
+
+        # Calcular matriz de enlaces con la métrica seleccionada
+        linkage_matrix = sch.linkage(X_scaled, method=metodo_enlace, metric=metrica_dist)
+
+
+        # === Dendrograma enriquecido: colorear ramas según clúster y mostrar distancia de corte ===
+        from scipy.cluster.hierarchy import fcluster
+        color_threshold = None
+        if 'n_clusters' in locals() and n_clusters > 1:
+            # Calcular el umbral de corte para colorear ramas
+            # El corte se hace en la distancia donde se forman n_clusters
+            # linkage_matrix[-(n_clusters-1), 2] es el valor de corte
+            if linkage_matrix.shape[0] >= n_clusters-1:
+                color_threshold = linkage_matrix[-(n_clusters-1), 2]
+        # Crear dendrograma enriquecido
         if orientacion_dendro == "vertical":
             fig_dendro = ff.create_dendrogram(
                 X_scaled,
-                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace),
+                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
                 orientation='bottom',
-                labels=[f"Obs {i}" for i in range(len(X_scaled))]
+                labels=[f"Obs {i}" for i in range(len(X_scaled))],
+                color_threshold=color_threshold
             )
             fig_dendro.update_layout(
-                title=f"Dendrograma jerárquico ({metodo_enlace})",
+                title=f"Dendrograma jerárquico ({metodo_enlace}, {metrica_dist})",
                 xaxis_title="Observaciones",
                 yaxis_title="Distancia",
                 height=500,
@@ -3737,15 +3931,24 @@ elif analisis == "Clustering Jerárquico" and df is not None:
                 paper_bgcolor=colores['fondo_secundario'],
                 font=dict(color=colores['texto'], size=12)
             )
+            # Línea de corte
+            if color_threshold is not None:
+                fig_dendro.add_shape(type="line",
+                    x0=-0.5, x1=len(X_scaled)-0.5,
+                    y0=color_threshold, y1=color_threshold,
+                    line=dict(color="#27ae60", width=2, dash="dash"),
+                    xref="x", yref="y"
+                )
         else:
             fig_dendro = ff.create_dendrogram(
                 X_scaled,
-                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace),
+                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
                 orientation='left',
-                labels=[f"Obs {i}" for i in range(len(X_scaled))]
+                labels=[f"Obs {i}" for i in range(len(X_scaled))],
+                color_threshold=color_threshold
             )
             fig_dendro.update_layout(
-                title=f"Dendrograma jerárquico ({metodo_enlace})",
+                title=f"Dendrograma jerárquico ({metodo_enlace}, {metrica_dist})",
                 xaxis_title="Distancia",
                 yaxis_title="Observaciones",
                 height=max(600, len(X_scaled) * 15),
@@ -3755,18 +3958,35 @@ elif analisis == "Clustering Jerárquico" and df is not None:
                 paper_bgcolor=colores['fondo_secundario'],
                 font=dict(color=colores['texto'], size=12)
             )
-        
+            # Línea de corte
+            if color_threshold is not None:
+                fig_dendro.add_shape(type="line",
+                    x0=color_threshold, x1=color_threshold,
+                    y0=-0.5, y1=len(X_scaled)-0.5,
+                    line=dict(color="#27ae60", width=2, dash="dash"),
+                    xref="x", yref="y"
+                )
+
         fig_dendro.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
         fig_dendro.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
-        
+
         st.plotly_chart(fig_dendro, use_container_width=True)
-        
-        st.info("""
+
+        if color_threshold is not None:
+            st.caption(f"El color de las ramas indica la pertenencia a cada clúster para n = {n_clusters}. La línea verde muestra la distancia de corte.")
+
+        st.info(f"""
         💡 **Cómo interpretar el dendrograma:**
         - Cada línea vertical (u horizontal si está rotado) representa la fusión de dos clusters.
         - La altura de la fusión indica la distancia entre los clusters fusionados.
         - Clusters que se fusionan a mayor altura son más distantes.
         - Puedes identificar visualmente el número óptimo de clusters buscando fusiones con grandes saltos en la distancia.
+        - **El color de las ramas indica la pertenencia a cada clúster para el corte seleccionado.**
+        - **La métrica de distancia elegida afecta la forma y agrupación de los clusters:**
+            - *Euclidean*: sensible a la escala y magnitud.
+            - *Manhattan*: robusta a outliers, suma de distancias absolutas.
+            - *Cosine*: agrupa por dirección, útil para datos de alta dimensión.
+            - *Correlation*: agrupa por patrón de variación, ignora magnitud absoluta.
         """)
         
         # Sugerencia automática de número de clusters basado en el análisis de distancias
@@ -3775,15 +3995,12 @@ elif analisis == "Clustering Jerárquico" and df is not None:
             Este análisis busca el número de clusters donde hay un **salto grande** en las distancias de fusión,
             indicando que fusionar más clusters sería forzar la unión de grupos muy diferentes.
             """)
-            
             # Calcular diferencias entre fusiones consecutivas
             last_merges = linkage_matrix[-10:, 2]  # Últimas 10 fusiones
             differences = np.diff(last_merges)
-            
             # Encontrar el salto más grande
             max_diff_idx = np.argmax(differences)
             sugerencia_clusters = len(last_merges) - max_diff_idx
-            
             # Graficar evolución de distancias
             import plotly.graph_objects as go
             fig_distances = go.Figure()
@@ -3795,7 +4012,6 @@ elif analisis == "Clustering Jerárquico" and df is not None:
                 line=dict(color=colores['acento'], width=3),
                 marker=dict(size=10, color=colores['acento'])
             ))
-            
             fig_distances.add_vline(
                 x=sugerencia_clusters,
                 line_dash="dash",
@@ -3803,7 +4019,6 @@ elif analisis == "Clustering Jerárquico" and df is not None:
                 annotation_text=f"Sugerencia: {sugerencia_clusters} clusters",
                 annotation_position="top"
             )
-            
             fig_distances.update_layout(
                 title="Evolución de distancias de fusión (últimas 10 fusiones)",
                 xaxis_title="Número de clusters",
@@ -3816,23 +4031,404 @@ elif analisis == "Clustering Jerárquico" and df is not None:
             )
             fig_distances.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
             fig_distances.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
-            
             st.plotly_chart(fig_distances, use_container_width=True)
             st.success(f"📊 **Número de clusters sugerido: {sugerencia_clusters}** (basado en el mayor salto en distancias de fusión)")
             st.caption("Nota: Esta es una sugerencia automática. Observa el dendrograma y los resultados para validar.")
+
+        # ================== DETERMINACIÓN ÓPTIMA DEL NÚMERO DE CLÚSTERES ==================
+        from sklearn.cluster import AgglomerativeClustering
+        with st.expander("📊 Análisis avanzado: Métodos para determinar el número óptimo de clústeres", expanded=False):
+            st.markdown("""
+            ### Métodos automáticos para elegir el número óptimo de clústeres
+            
+            Aquí se presentan múltiples métodos para ayudarte a decidir cuántos clústeres formar:
+            """)
+            
+            # Calcular métricas para diferentes números de clústeres
+            max_k = min(10, len(X_scaled) - 1)
+            k_range = range(2, max_k + 1)
+            
+            silhouette_scores = []
+            db_scores = []
+            ch_scores = []
+            inertias = []
+            
+            # Calcular con mensaje más discreto
+            with st.spinner('⏳ Calculando métricas para diferentes números de clústeres...'):
+                from scipy.spatial.distance import cdist
+                
+                for k in k_range:
+                    # Crear modelo temporal
+                    if metodo_enlace == "ward":
+                        agg_temp = AgglomerativeClustering(n_clusters=k, linkage=metodo_enlace)
+                    else:
+                        agg_temp = AgglomerativeClustering(n_clusters=k, linkage=metodo_enlace, metric=metrica_dist)
+                    
+                    try:
+                        labels_temp = agg_temp.fit_predict(X_scaled)
+                        
+                        # Calcular métricas solo si hay más de 1 clúster único
+                        if len(set(labels_temp)) > 1:
+                            silhouette_scores.append(silhouette_score(X_scaled, labels_temp))
+                            db_scores.append(davies_bouldin_score(X_scaled, labels_temp))
+                            ch_scores.append(calinski_harabasz_score(X_scaled, labels_temp))
+                            
+                            # Calcular inercia (suma de distancias al centroide)
+                            centroids = np.array([X_scaled[labels_temp == i].mean(axis=0) for i in range(k)])
+                            distances = cdist(X_scaled, centroids, 'euclidean')
+                            min_distances = np.min(distances, axis=1)
+                            inertias.append(np.sum(min_distances**2))
+                        else:
+                            silhouette_scores.append(0)
+                            db_scores.append(0)
+                            ch_scores.append(0)
+                            inertias.append(0)
+                    except Exception as e:
+                        silhouette_scores.append(0)
+                        db_scores.append(0)
+                        ch_scores.append(0)
+                        inertias.append(0)
+            
+            # === MÉTODO DEL CODO (ELBOW) ===
+            st.markdown("---")
+            st.markdown("#### 1️⃣ Método del Codo (Elbow Method)")
+            st.caption("Busca el punto donde la reducción de la inercia se vuelve marginal (el 'codo' de la curva).")
+            
+            fig_elbow = go.Figure()
+            fig_elbow.add_trace(go.Scatter(
+                x=list(k_range),
+                y=inertias,
+                mode='lines+markers',
+                name='Inercia',
+                line=dict(color=colores['acento'], width=3),
+                marker=dict(size=10, color=colores['acento'])
+            ))
+            
+            # Detectar el codo usando la segunda derivada
+            if len(inertias) > 2:
+                # Normalizar para detectar mejor el codo
+                inertias_norm = np.array(inertias) / np.max(inertias)
+                x_norm = np.array(list(k_range))
+                
+                # Calcular segunda derivada
+                first_derivative = np.gradient(inertias_norm)
+                second_derivative = np.gradient(first_derivative)
+                
+                # El codo es donde la segunda derivada es máxima
+                elbow_idx = np.argmax(second_derivative)
+                elbow_k = list(k_range)[elbow_idx]
+                
+                fig_elbow.add_vline(
+                    x=elbow_k,
+                    line_dash="dash",
+                    line_color=colores['exito'],
+                    annotation_text=f"Codo: k={elbow_k}",
+                    annotation_position="top"
+                )
+            
+            fig_elbow.update_layout(
+                title="Método del Codo: Inercia vs Número de Clústeres",
+                xaxis_title="Número de clústeres (k)",
+                yaxis_title="Inercia (suma de distancias al cuadrado)",
+                height=400,
+                hovermode='x unified',
+                plot_bgcolor=colores['plot_bg'],
+                paper_bgcolor=colores['fondo_secundario'],
+                font=dict(color=colores['texto'])
+            )
+            fig_elbow.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+            fig_elbow.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+            st.plotly_chart(fig_elbow, use_container_width=True)
+            
+            if 'elbow_k' in locals():
+                st.success(f"🎯 **Codo detectado en k = {elbow_k}**")
+            
+            # === COEFICIENTE DE INCONSISTENCIA ===
+            st.markdown("---")
+            st.markdown("#### 2️⃣ Coeficiente de Inconsistencia")
+            st.caption("Mide cuán diferente es cada fusión respecto a las fusiones cercanas. Valores altos indican cortes naturales.")
+            
+            from scipy.cluster.hierarchy import inconsistent
+            # Calcular coeficientes de inconsistencia
+            depth = min(5, len(linkage_matrix) - 1)
+            if depth > 0:
+                inconsistency_coeffs = inconsistent(linkage_matrix, d=depth)
+                
+                # Los coeficientes están en la columna 3 (índice 3)
+                inconsist_values = inconsistency_coeffs[:, 3]
+                
+                fig_inconsist = go.Figure()
+                fig_inconsist.add_trace(go.Scatter(
+                    x=list(range(len(inconsist_values))),
+                    y=inconsist_values,
+                    mode='lines+markers',
+                    name='Inconsistencia',
+                    line=dict(color=colores['warning'], width=2),
+                    marker=dict(size=8, color=colores['warning'])
+                ))
+                
+                # Detectar saltos grandes (posibles puntos de corte)
+                mean_inconsist = np.mean(inconsist_values)
+                std_inconsist = np.std(inconsist_values)
+                threshold = mean_inconsist + 1.5 * std_inconsist
+                
+                high_inconsist_indices = np.where(inconsist_values > threshold)[0]
+                if len(high_inconsist_indices) > 0:
+                    # Marcar los puntos con alta inconsistencia
+                    for idx in high_inconsist_indices[-3:]:  # Últimos 3
+                        fig_inconsist.add_vline(
+                            x=idx,
+                            line_dash="dot",
+                            line_color=colores['error'],
+                            annotation_text=f"k≈{len(linkage_matrix)-idx}",
+                            annotation_position="top"
+                        )
+                
+                fig_inconsist.update_layout(
+                    title="Coeficiente de Inconsistencia en el Dendrograma",
+                    xaxis_title="Índice de fusión",
+                    yaxis_title="Coeficiente de inconsistencia",
+                    height=400,
+                    hovermode='x unified',
+                    plot_bgcolor=colores['plot_bg'],
+                    paper_bgcolor=colores['fondo_secundario'],
+                    font=dict(color=colores['texto'])
+                )
+                fig_inconsist.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                fig_inconsist.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                st.plotly_chart(fig_inconsist, use_container_width=True)
+                
+                st.info(f"📌 Umbral de inconsistencia: {threshold:.2f}. Las líneas verticales indican fusiones inusuales que pueden ser buenos puntos de corte.")
+            
+            # === VARIACIÓN DE MÉTRICAS DE VALIDACIÓN ===
+            st.markdown("---")
+            st.markdown("#### 3️⃣ Variación de Métricas de Validación")
+            st.caption("Compara cómo varían las métricas de calidad según el número de clústeres.")
+            
+            # Crear gráficos individuales para mejor visualización
+            import plotly.graph_objects as go
+            
+            # 1. Silhouette Score (maximizar)
+            if len(silhouette_scores) > 0:
+                best_sil_k = list(k_range)[np.argmax(silhouette_scores)]
+                
+                fig_sil = go.Figure()
+                fig_sil.add_trace(go.Scatter(
+                    x=list(k_range), 
+                    y=silhouette_scores, 
+                    mode='lines+markers',
+                    name='Silhouette Score',
+                    line=dict(color=colores['acento'], width=3),
+                    marker=dict(size=10, color=colores['acento'])
+                ))
+                fig_sil.add_vline(
+                    x=best_sil_k,
+                    line_dash="dash",
+                    line_color=colores['exito'],
+                    annotation_text=f"Mejor: k={best_sil_k}",
+                    annotation_position="top"
+                )
+                fig_sil.update_layout(
+                    title="Silhouette Score (maximizar)",
+                    xaxis_title="Número de clústeres (k)",
+                    yaxis_title="Score",
+                    height=350,
+                    hovermode='x unified',
+                    plot_bgcolor=colores['plot_bg'],
+                    paper_bgcolor=colores['fondo_secundario'],
+                    font=dict(color=colores['texto'])
+                )
+                fig_sil.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                fig_sil.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                st.plotly_chart(fig_sil, use_container_width=True)
+            
+            # 2. Davies-Bouldin Index (minimizar)
+            db_scores_valid = [s for s in db_scores if s > 0]
+            if len(db_scores_valid) > 0:
+                best_db_k = list(k_range)[np.argmin([s if s > 0 else float('inf') for s in db_scores])]
+                
+                fig_db = go.Figure()
+                fig_db.add_trace(go.Scatter(
+                    x=list(k_range),
+                    y=db_scores,
+                    mode='lines+markers',
+                    name='Davies-Bouldin Index',
+                    line=dict(color=colores['warning'], width=3),
+                    marker=dict(size=10, color=colores['warning'])
+                ))
+                fig_db.add_vline(
+                    x=best_db_k,
+                    line_dash="dash",
+                    line_color=colores['exito'],
+                    annotation_text=f"Mejor: k={best_db_k}",
+                    annotation_position="top"
+                )
+                fig_db.update_layout(
+                    title="Davies-Bouldin Index (minimizar)",
+                    xaxis_title="Número de clústeres (k)",
+                    yaxis_title="Score",
+                    height=350,
+                    hovermode='x unified',
+                    plot_bgcolor=colores['plot_bg'],
+                    paper_bgcolor=colores['fondo_secundario'],
+                    font=dict(color=colores['texto'])
+                )
+                fig_db.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                fig_db.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                st.plotly_chart(fig_db, use_container_width=True)
+            
+            # 3. Calinski-Harabasz Score (maximizar)
+            if len(ch_scores) > 0:
+                best_ch_k = list(k_range)[np.argmax(ch_scores)]
+                
+                fig_ch = go.Figure()
+                fig_ch.add_trace(go.Scatter(
+                    x=list(k_range),
+                    y=ch_scores,
+                    mode='lines+markers',
+                    name='Calinski-Harabasz Score',
+                    line=dict(color=colores['info'], width=3),
+                    marker=dict(size=10, color=colores['info'])
+                ))
+                fig_ch.add_vline(
+                    x=best_ch_k,
+                    line_dash="dash",
+                    line_color=colores['exito'],
+                    annotation_text=f"Mejor: k={best_ch_k}",
+                    annotation_position="top"
+                )
+                fig_ch.update_layout(
+                    title="Calinski-Harabasz Score (maximizar)",
+                    xaxis_title="Número de clústeres (k)",
+                    yaxis_title="Score",
+                    height=350,
+                    hovermode='x unified',
+                    plot_bgcolor=colores['plot_bg'],
+                    paper_bgcolor=colores['fondo_secundario'],
+                    font=dict(color=colores['texto'])
+                )
+                fig_ch.update_xaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                fig_ch.update_yaxes(showgrid=True, gridwidth=1, gridcolor=colores['plot_grid'])
+                st.plotly_chart(fig_ch, use_container_width=True)
+            
+            # === RESUMEN DE RECOMENDACIONES ===
+            st.markdown("---")
+            st.markdown("#### 🎯 Resumen de Recomendaciones")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if 'elbow_k' in locals():
+                    st.metric("Método del Codo", f"k = {elbow_k}")
+            with col2:
+                if 'best_sil_k' in locals():
+                    st.metric("Mejor Silhouette", f"k = {best_sil_k}")
+            with col3:
+                if 'best_ch_k' in locals():
+                    st.metric("Mejor Calinski-Harabasz", f"k = {best_ch_k}")
+            
+            # Consenso
+            recommendations = []
+            if 'elbow_k' in locals():
+                recommendations.append(elbow_k)
+            if 'best_sil_k' in locals():
+                recommendations.append(best_sil_k)
+            if 'best_ch_k' in locals():
+                recommendations.append(best_ch_k)
+            
+            if recommendations:
+                # Moda de las recomendaciones
+                from collections import Counter
+                counter = Counter(recommendations)
+                most_common = counter.most_common(1)[0][0]
+                
+                st.success(f"""
+                **Consenso de métodos:** k = {most_common}
+                
+                Este valor aparece con mayor frecuencia en los diferentes métodos de evaluación.
+                """)
+                
+                st.caption("💡 **Interpretación:** Combina estos resultados con la inspección visual del dendrograma y el conocimiento del dominio para elegir el mejor número de clústeres.")
 
         st.markdown("---")
         st.subheader("⚙️ Selección de número de clusters")
         n_clusters = st.slider("Número de clusters a formar", min_value=2, max_value=min(10, len(X)), value=sugerencia_clusters if 'sugerencia_clusters' in locals() else 2)
         from sklearn.cluster import AgglomerativeClustering
-        agg = AgglomerativeClustering(n_clusters=n_clusters, linkage=metodo_enlace)
-        clusters = agg.fit_predict(X_scaled)
+        # AgglomerativeClustering solo permite affinity/metric diferente de 'euclidean' si linkage != 'ward'
+        if metodo_enlace == "ward":
+            agg = AgglomerativeClustering(n_clusters=n_clusters, linkage=metodo_enlace)
+        else:
+            agg = AgglomerativeClustering(n_clusters=n_clusters, linkage=metodo_enlace, metric=metrica_dist)
+        try:
+            clusters = agg.fit_predict(X_scaled)
+        except Exception as e:
+            st.error(f"Error al formar clusters: {e}. Verifica que la métrica sea compatible con el método de enlace.")
+            clusters = np.zeros(len(X_scaled), dtype=int)
 
-        st.success(f"**Clusters formados:** {n_clusters}")
+        st.success(f"**Clusters formados:** {n_clusters} (métrica: {metrica_dist})")
+        
+        # === Heatmap de medias por clúster ===
+        st.markdown("---")
+        st.subheader("🔥 Mapa de calor de medias por clúster")
+        # Usar datos originales (antes de escalado/PCA) para interpretabilidad
+        if aplicar_pca_prep and pca_model is not None:
+            # Si se aplicó PCA, mostrar los componentes principales
+            df_clusters = pd.DataFrame(X_scaled, columns=columnas_finales)
+            df_clusters["Cluster"] = clusters
+            medias = df_clusters.groupby("Cluster").mean()
+            st.caption("**Nota:** Las variables mostradas son componentes principales (PC). Para ver las variables originales, desactiva PCA.")
+        else:
+            # Usar variables originales (sin escalar) para mejor interpretación
+            df_clusters = pd.DataFrame(X_original, columns=feature_cols)
+            df_clusters["Cluster"] = clusters
+            medias = df_clusters.groupby("Cluster").mean()
+        
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        fig_heat, ax_heat = plt.subplots(figsize=(min(1.2*len(medias.columns)+2, 12), min(0.7*n_clusters+2, 8)))
+        sns.heatmap(medias, annot=True, fmt=".2f", cmap="YlOrRd", ax=ax_heat, cbar=True)
+        ax_heat.set_title("Medias de las variables por clúster")
+        plt.tight_layout()
+        st.pyplot(fig_heat)
+        st.caption("Cada fila es un clúster, cada columna una variable. Los colores muestran el valor medio de cada variable en cada clúster.")
+
+        # ================== VALIDACIÓN DE CLÚSTERES ==================
+        st.markdown("---")
+        st.subheader("📈 Índices de validación del clustering")
+        from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+        # Validación interna
+        if n_clusters > 1 and len(set(clusters)) > 1:
+            sil_score = silhouette_score(X_scaled, clusters)
+            db_score = davies_bouldin_score(X_scaled, clusters)
+            ch_score = calinski_harabasz_score(X_scaled, clusters)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Silhouette", f"{sil_score:.3f}", help="Rango: [-1, 1]. Más alto = mejor separación de clústeres.")
+            with col2:
+                st.metric("Davies-Bouldin", f"{db_score:.3f}", help="Rango: [0, ∞). Más bajo = mejor separación de clústeres.")
+            with col3:
+                st.metric("Calinski-Harabasz", f"{ch_score:.1f}", help="Más alto = clústeres más compactos y bien separados.")
+        else:
+            st.info("No se pueden calcular índices internos: se requiere al menos 2 clústeres distintos.")
+
+        # Validación externa si hay etiquetas verdaderas
+        target_col = st.session_state.get("target_col_global")
+        if target_col and target_col in df.columns:
+            y_true = df[target_col].values
+            from sklearn.metrics import adjusted_rand_score, adjusted_mutual_info_score
+            st.markdown("---")
+            st.subheader("🔍 Validación externa (si hay etiquetas)")
+            ari = adjusted_rand_score(y_true, clusters)
+            ami = adjusted_mutual_info_score(y_true, clusters)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Adjusted Rand Index", f"{ari:.3f}", help="Rango: [-1, 1]. 1 = clusters idénticos a las etiquetas.")
+            with col2:
+                st.metric("Mutual Information", f"{ami:.3f}", help="Rango: [0, 1]. 1 = clusters perfectamente alineados con las etiquetas.")
+            st.caption("Estas métricas solo tienen sentido si las etiquetas verdaderas representan una segmentación real.")
 
         tipo_viz = st.radio(
             "Selecciona el tipo de visualización:",
-            ["2D (2 variables)", "3D (3 variables)"] if len(feature_cols) >= 3 else ["2D (2 variables)"],
+            ["2D (2 variables)", "3D (3 variables)"] if len(columnas_finales) >= 3 else ["2D (2 variables)"],
             horizontal=True
         )
 
@@ -3840,23 +4436,27 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         colores_clusters_viz = [
             '#E74C3C', '#2980B9', '#F39C12', '#8E44AD', '#FFD700', '#D35400', '#34495E', '#1ABC9C', '#C0392B', '#7F8C8D', '#00FF00', '#FF00FF', '#FF1493', '#00CED1', '#FF4500'
         ]
-        if tipo_viz == "3D (3 variables)" and len(feature_cols) >= 3:
+        
+        # Datos para visualización (usar datos escalados para consistencia con clustering)
+        datos_viz = pd.DataFrame(X_scaled, columns=columnas_finales)
+        
+        if tipo_viz == "3D (3 variables)" and len(columnas_finales) >= 3:
             st.write("**Elige manualmente las 3 variables para visualizar:**")
             col1, col2, col3 = st.columns(3)
             with col1:
-                var_x = st.selectbox("Eje X:", feature_cols, key="hierarchical_var_x_3d")
+                var_x = st.selectbox("Eje X:", columnas_finales, key="hierarchical_var_x_3d")
             with col2:
-                var_y = st.selectbox("Eje Y:", feature_cols, key="hierarchical_var_y_3d")
+                var_y = st.selectbox("Eje Y:", columnas_finales, key="hierarchical_var_y_3d")
             with col3:
-                var_z = st.selectbox("Eje Z:", feature_cols, key="hierarchical_var_z_3d")
+                var_z = st.selectbox("Eje Z:", columnas_finales, key="hierarchical_var_z_3d")
             fig3d = go.Figure()
             for idx, cluster_id in enumerate(sorted(set(clusters))):
                 mask = clusters == cluster_id
                 color = colores_clusters_viz[idx % len(colores_clusters_viz)]
                 fig3d.add_trace(go.Scatter3d(
-                    x=X[var_x][mask],
-                    y=X[var_y][mask],
-                    z=X[var_z][mask],
+                    x=datos_viz[var_x][mask],
+                    y=datos_viz[var_y][mask],
+                    z=datos_viz[var_z][mask],
                     mode='markers',
                     name=f'Cluster {cluster_id}',
                     marker=dict(size=7, color=color, opacity=0.7, line=dict(width=0.5, color='white'))
@@ -3872,16 +4472,16 @@ elif analisis == "Clustering Jerárquico" and df is not None:
             st.write("**Elige manualmente las 2 variables para visualizar:**")
             col1, col2 = st.columns(2)
             with col1:
-                var_x = st.selectbox("Eje X:", feature_cols, key="hierarchical_var_x_2d")
+                var_x = st.selectbox("Eje X:", columnas_finales, key="hierarchical_var_x_2d")
             with col2:
-                var_y = st.selectbox("Eje Y:", feature_cols, key="hierarchical_var_y_2d")
+                var_y = st.selectbox("Eje Y:", columnas_finales, key="hierarchical_var_y_2d")
             fig2d = go.Figure()
             for idx, cluster_id in enumerate(sorted(set(clusters))):
                 mask = clusters == cluster_id
                 color = colores_clusters_viz[idx % len(colores_clusters_viz)]
                 fig2d.add_trace(go.Scatter(
-                    x=X[var_x][mask],
-                    y=X[var_y][mask],
+                    x=datos_viz[var_x][mask],
+                    y=datos_viz[var_y][mask],
                     mode='markers',
                     name=f'Cluster {cluster_id}',
                     marker=dict(size=8, color=color, opacity=0.85, line=dict(width=1, color='white'))
