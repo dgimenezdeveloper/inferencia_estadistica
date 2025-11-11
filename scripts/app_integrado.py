@@ -494,8 +494,9 @@ analisis = st.sidebar.selectbox(
         "Regresión Logística",
         "Reducción de dimensiones (PCA)",
         "K-means (Clustering)",
-            "DBSCAN (Clustering)",
-            "Clustering Jerárquico",
+        "DBSCAN (Clustering)",
+        "Clustering Jerárquico",
+        "Comparativa de Clustering",
         "SVM (Máquinas de Vectores de Soporte)",
         "Comparativa de Modelos"
     ]
@@ -4513,6 +4514,248 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         st.dataframe(preview_df, use_container_width=True)
     else:
         st.info("Selecciona al menos dos variables numéricas para aplicar clustering jerárquico.")
+
+# === Comparativa de Clustering ===
+elif analisis == "Comparativa de Clustering" and df is not None:
+    st.title("🤖 Comparativa de Modelos de Clustering: K-means, DBSCAN, Jerárquico")
+    st.markdown("""
+    Esta vista compara automáticamente los principales algoritmos de clustering sobre tu dataset, usando métricas estándar y visualizaciones para ayudarte a elegir el método más adecuado.
+    
+    **Modelos incluidos:**
+    - K-means
+    - DBSCAN
+    - Clustering Jerárquico (agglomerative)
+    """)
+    
+    with st.expander("ℹ️ Guía de métricas de clustering y parámetros", expanded=False):
+        st.markdown("""
+        ### 📊 Métricas de clustering
+        
+        **Silhouette Score** (rango: -1 a 1)
+        - Mide qué tan bien están separados los clusters
+        - Valores cercanos a 1: clusters bien definidos y separados
+        - Valores cercanos a 0: clusters solapados
+        - Valores negativos: puntos mal asignados
+        
+        **Calinski-Harabasz Score** (mayor es mejor)
+        - Ratio de dispersión entre clusters vs dentro de clusters
+        - Valores altos indican clusters densos y bien separados
+        
+        **Davies-Bouldin Score** (menor es mejor)
+        - Promedio de similitud entre cada cluster y su más similar
+        - Valores cercanos a 0 indican mejor separación
+        
+        ### ⚙️ Parámetros de DBSCAN
+        
+        **eps (epsilon)**: Radio de vecindad
+        - Muy bajo → muchos outliers, pocos clusters
+        - Muy alto → todos los puntos en un solo cluster
+        - **Sugerido automáticamente** basado en distancias k-NN
+        
+        **min_samples**: Mínimo de puntos para formar un cluster core
+        - Muy bajo → clusters pequeños y fragmentados
+        - Muy alto → pocos clusters, muchos outliers
+        - Regla general: log(n) donde n = número de muestras
+        
+        **💡 Tip**: Si DBSCAN muestra "None" en las métricas, ajusta eps y min_samples según las sugerencias.
+        """)
+
+
+    # Selección de columnas numéricas
+    columnas = df.columns.tolist()
+    nombres_clase = ["clase", "class", "target", "etiqueta", "label"]
+    num_cols = [c for c in columnas if pd.api.types.is_numeric_dtype(df[c]) and c.strip().lower() not in nombres_clase]
+    feature_cols = st.multiselect(
+        "Selecciona las columnas numéricas para clustering:",
+        num_cols,
+        default=num_cols,
+        key="features_comp_clust"
+    )
+    if not feature_cols or len(feature_cols) < 2:
+        st.warning("Selecciona al menos 2 columnas numéricas para comparar los modelos de clustering.")
+        st.stop()
+
+    X = df[feature_cols].copy()
+    if X.isnull().sum().sum() > 0:
+        st.warning("Se imputan nulos con la media para la comparación.")
+        X = X.fillna(X.mean())
+
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Sugerir parámetros automáticos para DBSCAN
+    from sklearn.neighbors import NearestNeighbors
+    import numpy as np
+    
+    # Calcular eps sugerido (método del codo en distancias k-NN)
+    k = min(5, len(X_scaled) - 1)
+    nbrs = NearestNeighbors(n_neighbors=k).fit(X_scaled)
+    distances, indices = nbrs.kneighbors(X_scaled)
+    distances = np.sort(distances[:, k-1], axis=0)
+    eps_sugerido = float(np.percentile(distances, 90))
+    
+    # Parámetros para los modelos
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        n_clusters = st.slider("Número de clusters (K)", min_value=2, max_value=8, value=3, step=1, key="n_clusters_comp")
+    with col2:
+        eps = st.slider("DBSCAN: eps (radio de vecindad)", min_value=0.1, max_value=10.0, value=min(eps_sugerido, 3.0), step=0.1, key="eps_comp", help=f"Sugerido automáticamente: {eps_sugerido:.2f}")
+    with col3:
+        min_samples = st.slider("DBSCAN: min_samples", min_value=2, max_value=20, value=max(3, int(np.log(len(X_scaled)))), step=1, key="min_samples_comp")
+
+    # Importar modelos y métricas
+    from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+    from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+    import numpy as np
+    import pandas as pd
+    import plotly.express as px
+
+    resultados = []
+    etiquetas_dict = {}
+
+    # K-means
+    try:
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        labels_kmeans = kmeans.fit_predict(X_scaled)
+        etiquetas_dict["K-means"] = labels_kmeans
+        sil_kmeans = silhouette_score(X_scaled, labels_kmeans)
+        cal_kmeans = calinski_harabasz_score(X_scaled, labels_kmeans)
+        db_kmeans = davies_bouldin_score(X_scaled, labels_kmeans)
+        resultados.append({
+            "Modelo": "K-means",
+            "Clusters": len(np.unique(labels_kmeans)),
+            "Silhouette": sil_kmeans,
+            "Calinski-Harabasz": cal_kmeans,
+            "Davies-Bouldin": db_kmeans
+        })
+    except Exception as e:
+        resultados.append({"Modelo": "K-means", "Clusters": np.nan, "Silhouette": np.nan, "Calinski-Harabasz": np.nan, "Davies-Bouldin": np.nan})
+
+    # DBSCAN
+    try:
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+        labels_dbscan = dbscan.fit_predict(X_scaled)
+        etiquetas_dict["DBSCAN"] = labels_dbscan
+        
+        # Contar clusters (excluyendo outliers -1)
+        n_clusters_dbscan = len(set(labels_dbscan)) - (1 if -1 in labels_dbscan else 0)
+        n_outliers = np.sum(labels_dbscan == -1)
+        
+        # Solo calcular métricas si hay al menos 2 clusters
+        if n_clusters_dbscan >= 2 and n_outliers < len(labels_dbscan):
+            # Excluir outliers (-1) para métricas
+            mask_core = labels_dbscan != -1
+            sil_dbscan = silhouette_score(X_scaled[mask_core], labels_dbscan[mask_core])
+            cal_dbscan = calinski_harabasz_score(X_scaled[mask_core], labels_dbscan[mask_core])
+            db_dbscan = davies_bouldin_score(X_scaled[mask_core], labels_dbscan[mask_core])
+            resultados.append({
+                "Modelo": f"DBSCAN ({n_outliers} outliers)",
+                "Clusters": n_clusters_dbscan,
+                "Silhouette": sil_dbscan,
+                "Calinski-Harabasz": cal_dbscan,
+                "Davies-Bouldin": db_dbscan
+            })
+        else:
+            # No se encontraron clusters válidos
+            if n_clusters_dbscan == 0:
+                msg = "Todos los puntos son outliers. Aumenta eps o reduce min_samples"
+            elif n_clusters_dbscan == 1:
+                msg = "Solo 1 cluster encontrado. Reduce eps o min_samples"
+            else:
+                msg = "No hay suficientes puntos core"
+            
+            resultados.append({
+                "Modelo": f"DBSCAN ({msg})",
+                "Clusters": n_clusters_dbscan,
+                "Silhouette": np.nan,
+                "Calinski-Harabasz": np.nan,
+                "Davies-Bouldin": np.nan
+            })
+    except Exception as e:
+        resultados.append({
+            "Modelo": f"DBSCAN (error: {str(e)[:30]})",
+            "Clusters": np.nan,
+            "Silhouette": np.nan,
+            "Calinski-Harabasz": np.nan,
+            "Davies-Bouldin": np.nan
+        })
+
+    # Clustering Jerárquico
+    try:
+        hier = AgglomerativeClustering(n_clusters=n_clusters)
+        labels_hier = hier.fit_predict(X_scaled)
+        etiquetas_dict["Jerárquico"] = labels_hier
+        sil_hier = silhouette_score(X_scaled, labels_hier)
+        cal_hier = calinski_harabasz_score(X_scaled, labels_hier)
+        db_hier = davies_bouldin_score(X_scaled, labels_hier)
+        resultados.append({
+            "Modelo": "Jerárquico",
+            "Clusters": len(np.unique(labels_hier)),
+            "Silhouette": sil_hier,
+            "Calinski-Harabasz": cal_hier,
+            "Davies-Bouldin": db_hier
+        })
+    except Exception as e:
+        resultados.append({"Modelo": "Jerárquico", "Clusters": np.nan, "Silhouette": np.nan, "Calinski-Harabasz": np.nan, "Davies-Bouldin": np.nan})
+
+    df_res = pd.DataFrame(resultados)
+    st.subheader("📊 Resultados comparativos de clustering")
+    st.dataframe(df_res, use_container_width=True)
+    
+    # Interpretación automática para DBSCAN
+    dbscan_row = df_res[df_res['Modelo'].str.contains('DBSCAN', case=False)]
+    if not dbscan_row.empty:
+        dbscan_clusters = dbscan_row['Clusters'].values[0]
+        if pd.isna(dbscan_clusters) or dbscan_clusters == 0:
+            st.warning("""
+            ⚠️ **DBSCAN no encontró clusters válidos**
+            
+            **Posibles soluciones:**
+            - **Aumentar `eps`**: Permite que los puntos estén más alejados para formar clusters
+            - **Reducir `min_samples`**: Requiere menos puntos para formar un cluster core
+            - **Verificar escala de datos**: DBSCAN es muy sensible a la escala
+            
+            **Valores actuales:**
+            - eps = {:.2f}
+            - min_samples = {}
+            
+            **Sugerencia:** Empieza con eps más alto (prueba con valores entre {} y {})
+            """.format(eps, min_samples, eps_sugerido * 0.5, eps_sugerido * 2.0))
+        elif dbscan_clusters == 1:
+            st.info("""
+            ℹ️ **DBSCAN encontró solo 1 cluster**
+            
+            Esto significa que todos los puntos están muy cerca entre sí.
+            
+            **Para obtener más clusters:**
+            - **Reducir `eps`**: Hará clusters más pequeños y compactos
+            - **Aumentar `min_samples`**: Hará que se requieran más puntos para formar clusters
+            """)
+
+    # Gráfico resumen
+    fig = px.bar(df_res, x="Modelo", y="Silhouette", color="Modelo", barmode="group", title="Comparación de modelos de clustering (Silhouette)", labels={"Silhouette": "Score Silhouette"})
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Visualización de clusters (solo si hay 2 o 3 features)
+    if len(feature_cols) in [2, 3]:
+        st.subheader("🔎 Visualización de clusters para cada modelo")
+        for modelo, labels in etiquetas_dict.items():
+            st.markdown(f"**{modelo}**")
+            if len(feature_cols) == 2:
+                fig2d = px.scatter(
+                    x=X[feature_cols[0]], y=X[feature_cols[1]], color=labels.astype(str),
+                    title=f"Clusters encontrados por {modelo}", labels={"color": "Cluster"}
+                )
+                st.plotly_chart(fig2d, use_container_width=True)
+            elif len(feature_cols) == 3:
+                fig3d = px.scatter_3d(
+                    X, x=feature_cols[0], y=feature_cols[1], z=feature_cols[2], color=labels.astype(str),
+                    title=f"Clusters encontrados por {modelo}", labels={"color": "Cluster"}
+                )
+                st.plotly_chart(fig3d, use_container_width=True)
+    else:
+        st.info("Para visualizar los clusters, selecciona exactamente 2 o 3 variables numéricas.")
 
 elif df is not None:
 
