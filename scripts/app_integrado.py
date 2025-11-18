@@ -1807,7 +1807,69 @@ if analisis == "Regresión Logística" and df is not None:
             key="features_logreg"
         )
 
+        # === PREPROCESAMIENTO CON SUGERENCIAS AUTOMÁTICAS ===
+        if feature_cols and len(feature_cols) >= 2:
+            st.markdown("---")
+            st.subheader("⚙️ Preprocesamiento de datos")
+            
+            # Detectar si hay variables altamente correlacionadas
+            from preprocesamiento import detectar_variables_redundantes
+            X_temp = df[feature_cols]
+            if X_temp.isnull().values.any():
+                X_temp = X_temp.fillna(X_temp.mean())
+            corr_temp = X_temp.corr()
+            vars_redundantes = detectar_variables_redundantes(corr_temp, feature_cols, threshold=0.8)
+            
+            # Mostrar advertencia con sugerencia automática
+            with st.expander("💡 Sugerencias automáticas de preprocesamiento", expanded=True):
+                if len(vars_redundantes) > 0:
+                    st.warning(f"""
+                    ⚠️ Se detectaron {len(vars_redundantes)} pares de variables altamente correlacionadas (>0.8). 
+                    PCA es recomendable para reducir redundancia y multicolinealidad.
+                    """)
+                    st.info("🔍 **Se detectaron 1 pares de variables altamente correlacionadas (>0.8). PCA es recomendable.**")
+                    with st.expander("Ver pares de variables correlacionadas"):
+                        for v1, v2, corr_val in vars_redundantes:
+                            st.write(f"- **{v1}** y **{v2}**: correlación = {corr_val:.3f}")
+                else:
+                    st.success("✅ No se detectaron variables altamente correlacionadas. El preprocesamiento básico es suficiente.")
+                
+                # Verificar covarianzas altas
+                cov_temp = X_temp.cov()
+                umbral_cov = 100
+                mask_high_cov = (cov_temp.abs() > umbral_cov) & (~np.eye(len(cov_temp), dtype=bool))
+                if mask_high_cov.any().any():
+                    st.warning("⚠️ Se detectaron covarianzas muy altas entre algunas variables. Escala las variables si hay covarianzas muy altas.")
+            
+            # Opciones de preprocesamiento
+            col_prep1, col_prep2 = st.columns(2)
+            
+            with col_prep1:
+                aplicar_escalado_logreg = st.checkbox(
+                    "Aplicar escalado (StandardScaler)",
+                    value=True,
+                    help="Estandariza las variables a media=0 y desviación=1. Recomendado para regresión logística.",
+                    key="escalar_logreg"
+                )
+            
+            with col_prep2:
+                aplicar_pca_logreg = st.checkbox(
+                    "Aplicar PCA (reducción de dimensionalidad)",
+                    value=(len(vars_redundantes) > 0),
+                    help="Reduce dimensionalidad preservando la varianza. Recomendado si hay variables correlacionadas.",
+                    key="pca_logreg"
+                )
+            
+            if aplicar_pca_logreg:
+                varianza_pca_logreg = st.slider(
+                    "Varianza mínima a preservar con PCA (%)",
+                    min_value=70, max_value=99, value=85, step=5,
+                    help="Porcentaje mínimo de varianza que deben explicar los componentes principales",
+                    key="varianza_pca_logreg"
+                )
+
         # === Análisis de correlación y covarianza ===
+        st.markdown("---")
         st.subheader("🔗 Matriz de correlación y covarianza entre variables predictoras")
         st.markdown("""
         Antes de entrenar el modelo, es fundamental analizar la relación entre las variables predictoras:
@@ -1928,10 +1990,55 @@ if analisis == "Regresión Logística" and df is not None:
             else:
                 C_value = 1.0  # No importa si penalty=None
             
-            # Escalado
+            # === Aplicar preprocesamiento según las opciones seleccionadas ===
             from sklearn.preprocessing import StandardScaler
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
+            from sklearn.decomposition import PCA
+            
+            X_procesado = X.copy()
+            transformaciones_aplicadas_logreg = []
+            
+            # Escalado
+            if aplicar_escalado_logreg:
+                scaler = StandardScaler()
+                X_procesado = pd.DataFrame(
+                    scaler.fit_transform(X_procesado),
+                    columns=X_procesado.columns,
+                    index=X_procesado.index
+                )
+                transformaciones_aplicadas_logreg.append("Escalado (StandardScaler)")
+                st.success("✅ Datos escalados (media=0, std=1)")
+            else:
+                scaler = None
+                st.info("ℹ️ Datos sin escalar")
+            
+            # PCA si está activado
+            pca_model_logreg = None
+            if aplicar_pca_logreg:
+                # Determinar número de componentes
+                pca_temp = PCA()
+                pca_temp.fit(X_procesado)
+                var_acum = np.cumsum(pca_temp.explained_variance_ratio_)
+                n_componentes = np.argmax(var_acum >= (varianza_pca_logreg / 100)) + 1
+                
+                # Aplicar PCA con el número óptimo de componentes
+                pca_model_logreg = PCA(n_components=n_componentes)
+                X_pca = pca_model_logreg.fit_transform(X_procesado)
+                X_procesado = pd.DataFrame(
+                    X_pca,
+                    columns=[f"PC{i+1}" for i in range(n_componentes)],
+                    index=X.index
+                )
+                transformaciones_aplicadas_logreg.append(f"PCA ({n_componentes} componentes, {var_acum[n_componentes-1]*100:.1f}% varianza)")
+                st.success(f"✅ PCA aplicado: {n_componentes} componentes explican {var_acum[n_componentes-1]*100:.1f}% de la varianza")
+            
+            # Mostrar resumen de preprocesamiento
+            if transformaciones_aplicadas_logreg:
+                st.markdown("**Transformaciones aplicadas:** " + " → ".join(transformaciones_aplicadas_logreg))
+            
+            # Mantener nombres de columnas actuales después del preprocesamiento
+            feature_cols_actual = X_procesado.columns.tolist() if isinstance(X_procesado, pd.DataFrame) else feature_cols
+            X_scaled = X_procesado.values if isinstance(X_procesado, pd.DataFrame) else X_procesado
+            
             from sklearn.linear_model import LogisticRegression
             from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
             import numpy as np
@@ -2135,7 +2242,7 @@ if analisis == "Regresión Logística" and df is not None:
                 st.warning("No se puede calcular la curva ROC: se requiere al menos dos clases.")
             
             # === Visualización de frontera de decisión (solo si hay 2 variables) ===
-            if len(feature_cols) == 2:
+            if len(feature_cols_actual) == 2:
                 st.markdown("---")
                 st.subheader("🗺️ Visualización de la frontera de decisión")
                 st.markdown("""
@@ -2188,9 +2295,9 @@ if analisis == "Regresión Logística" and df is not None:
                         )
                     ))
                 fig_boundary.update_layout(
-                    title=f"Frontera de decisión: {feature_cols[0]} vs {feature_cols[1]}",
-                    xaxis_title=f"{feature_cols[0]} (escalado)",
-                    yaxis_title=f"{feature_cols[1]} (escalado)",
+                    title=f"Frontera de decisión: {feature_cols_actual[0]} vs {feature_cols_actual[1]}",
+                    xaxis_title=f"{feature_cols_actual[0]} (escalado)",
+                    yaxis_title=f"{feature_cols_actual[1]} (escalado)",
                     showlegend=True
                 )
                 st.plotly_chart(fig_boundary, use_container_width=True)
@@ -2202,8 +2309,8 @@ if analisis == "Regresión Logística" and df is not None:
                 - <b>Interpretación:</b> Si los puntos de cada clase están bien agrupados en su región correspondiente, el modelo separa bien. Si hay muchos puntos en la región equivocada, hay errores de clasificación.<br>
                 </div>
                 """, unsafe_allow_html=True)
-            elif len(feature_cols) > 2:
-                st.info("💡 Para visualizar la frontera de decisión, selecciona exactamente 2 variables en la sección de atributos.")
+            elif len(feature_cols_actual) > 2:
+                st.info("💡 Para visualizar la frontera de decisión, selecciona exactamente 2 variables en la sección de atributos." + (" Actualmente tienes {} componentes principales después de PCA.".format(len(feature_cols_actual)) if aplicar_pca_logreg else ""))
             
             # === Interpretación de coeficientes ===
             st.markdown("---")
@@ -2219,14 +2326,14 @@ if analisis == "Regresión Logística" and df is not None:
             if coef.shape[0] == 1:
                 # Binaria
                 df_coef = pd.DataFrame({
-                    'Variable': feature_cols,
+                    'Variable': feature_cols_actual,
                     'Coeficiente': coef[0]
                 })
                 df_coef['Impacto'] = np.where(df_coef['Coeficiente'] > 0, '↑ Aumenta prob. clase 1', '↓ Disminuye prob. clase 1')
                 st.dataframe(df_coef.set_index('Variable').style.format({'Coeficiente': '{:.3f}'}))
             else:
                 # Multiclase
-                df_coef = pd.DataFrame(coef.T, columns=[f"Clase {clase_labels_global.get(c, str(c))}" for c in model.classes_], index=feature_cols)
+                df_coef = pd.DataFrame(coef.T, columns=[f"Clase {clase_labels_global.get(c, str(c))}" for c in model.classes_], index=feature_cols_actual)
                 st.dataframe(df_coef.style.format('{:.3f}'))
                 st.caption("Cada columna muestra el efecto de la variable sobre la probabilidad de esa clase (vs. la clase base).")
             st.info("Un coeficiente positivo significa que al aumentar esa variable, aumenta la probabilidad de la clase indicada. Un coeficiente negativo, lo contrario. La magnitud indica la fuerza del efecto.")
@@ -2249,7 +2356,7 @@ if analisis == "Regresión Logística" and df is not None:
                 # Multiclase: promedio del valor absoluto entre clases
                 importancias = np.mean(np.abs(coef), axis=0)
             df_importancia = pd.DataFrame({
-                'Variable': feature_cols,
+                'Variable': feature_cols_actual,
                 'Importancia (|coef|)': importancias
             }).sort_values('Importancia (|coef|)', ascending=False)
             fig_imp = px.bar(
@@ -2506,7 +2613,7 @@ if analisis == "Regresión Logística" and df is not None:
                 
                 # Calcular coeficientes para diferentes valores de C
                 C_values = [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
-                coef_paths = {feat: [] for feat in feature_cols}
+                coef_paths = {feat: [] for feat in feature_cols_actual}
                 
                 for C_test in C_values:
                     model_test = LogisticRegression(
@@ -2529,12 +2636,12 @@ if analisis == "Regresión Logística" and df is not None:
                         # Multiclase: promediar coeficientes entre clases
                         coefs = np.mean(np.abs(model_test.coef_), axis=0)
                     
-                    for i, feat in enumerate(feature_cols):
+                    for i, feat in enumerate(feature_cols_actual):
                         coef_paths[feat].append(coefs[i])
                 
                 # Crear gráfico interactivo de evolución de coeficientes
                 fig_coef_reg = go.Figure()
-                for feat in feature_cols:
+                for feat in feature_cols_actual:
                     fig_coef_reg.add_trace(go.Scatter(
                         x=C_values,
                         y=coef_paths[feat],
@@ -2603,7 +2710,7 @@ if analisis == "Regresión Logística" and df is not None:
                     df_active = pd.DataFrame({
                         'C': C_values,
                         'Variables activas': active_vars,
-                        'Total variables': len(feature_cols)
+                        'Total variables': len(feature_cols_actual)
                     })
                     st.dataframe(df_active, hide_index=True)
                     st.caption("Con L1 (Lasso), al reducir C (más regularización), más variables son eliminadas (coeficiente = 0). Esto es útil para selección automática de variables.")
@@ -2615,47 +2722,54 @@ if analisis == "Regresión Logística" and df is not None:
             # === Predicción interactiva ===
             st.markdown("---")
             st.subheader("Predicción interactiva y probabilidades por clase")
-            st.markdown("""
-            Ingresa valores para cada variable y obtén la predicción del modelo y las probabilidades asociadas a cada clase.
-            """)
-            col_inputs = st.columns(len(feature_cols))
-            input_vals = []
-            for i, col in enumerate(feature_cols):
-                minv = float(df[col].min())
-                maxv = float(df[col].max())
-                meanv = float(df[col].mean())
-                val = col_inputs[i].number_input(f"{col}", min_value=minv, max_value=maxv, value=meanv, key=f"input_{col}_logreg")
-                input_vals.append(val)
-            if st.button("Predecir", key="btn_predecir_logreg"):
-                # Escalar igual que entrenamiento
-                input_array = np.array(input_vals).reshape(1, -1)
-                input_scaled = scaler.transform(input_array)
-                pred = model.predict(input_scaled)[0]
-                probas = model.predict_proba(input_scaled)[0]
-                st.success(f"Predicción: {clase_labels_global.get(pred, str(pred))}")
-                st.write("#### Probabilidades por clase:")
-                class_names = [clase_labels_global.get(c, str(c)) for c in model.classes_]
-                df_proba = pd.DataFrame({
-                    'Clase': class_names,
-                    'Probabilidad': [f"{p:.3f}" for p in probas]
-                })
-                st.dataframe(df_proba)
-                import plotly.graph_objects as go
-                fig_proba = go.Figure(go.Bar(
-                    x=class_names,
-                    y=probas,
-                    marker_color='royalblue',
-                    text=[f"{p:.2%}" for p in probas],
-                    textposition='auto'))
-                fig_proba.update_layout(
-                    title="Probabilidad de pertenencia a cada clase",
-                    xaxis_title="Clase",
-                    yaxis_title="Probabilidad",
-                    yaxis=dict(range=[0,1]),
-                    width=600, height=400
-                )
-                st.plotly_chart(fig_proba, use_container_width=True)
-                st.caption("La clase con mayor probabilidad es la predicción del modelo. Si varias clases tienen probabilidades similares, el modelo está menos seguro.")
+            
+            if aplicar_pca_logreg:
+                st.info("💡 La predicción interactiva no está disponible cuando se aplica PCA, ya que las variables de entrada originales fueron transformadas a componentes principales. Para hacer predicciones, usa el modelo entrenado directamente con nuevos datos preprocesados de la misma forma.")
+            else:
+                st.markdown("""
+                Ingresa valores para cada variable y obtén la predicción del modelo y las probabilidades asociadas a cada clase.
+                """)
+                col_inputs = st.columns(len(feature_cols))
+                input_vals = []
+                for i, col in enumerate(feature_cols):
+                    minv = float(df[col].min())
+                    maxv = float(df[col].max())
+                    meanv = float(df[col].mean())
+                    val = col_inputs[i].number_input(f"{col}", min_value=minv, max_value=maxv, value=meanv, key=f"input_{col}_logreg")
+                    input_vals.append(val)
+                if st.button("Predecir", key="btn_predecir_logreg"):
+                    # Escalar igual que entrenamiento
+                    input_array = np.array(input_vals).reshape(1, -1)
+                    if scaler is not None:
+                        input_scaled = scaler.transform(input_array)
+                    else:
+                        input_scaled = input_array
+                    pred = model.predict(input_scaled)[0]
+                    probas = model.predict_proba(input_scaled)[0]
+                    st.success(f"Predicción: {clase_labels_global.get(pred, str(pred))}")
+                    st.write("#### Probabilidades por clase:")
+                    class_names = [clase_labels_global.get(c, str(c)) for c in model.classes_]
+                    df_proba = pd.DataFrame({
+                        'Clase': class_names,
+                        'Probabilidad': [f"{p:.3f}" for p in probas]
+                    })
+                    st.dataframe(df_proba)
+                    import plotly.graph_objects as go
+                    fig_proba = go.Figure(go.Bar(
+                        x=class_names,
+                        y=probas,
+                        marker_color='royalblue',
+                        text=[f"{p:.2%}" for p in probas],
+                        textposition='auto'))
+                    fig_proba.update_layout(
+                        title="Probabilidad de pertenencia a cada clase",
+                        xaxis_title="Clase",
+                        yaxis_title="Probabilidad",
+                        yaxis=dict(range=[0,1]),
+                        width=600, height=400
+                    )
+                    st.plotly_chart(fig_proba, use_container_width=True)
+                    st.caption("La clase con mayor probabilidad es la predicción del modelo. Si varias clases tienen probabilidades similares, el modelo está menos seguro.")
         else:
             st.info("Selecciona al menos una variable numérica para entrenar el modelo.")
 # === VISTA K-MEANS CLUSTERING ===
