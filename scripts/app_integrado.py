@@ -4,6 +4,7 @@ import numpy as np
 import os
 import warnings
 import matplotlib.pyplot as plt
+from scipy import stats
 
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, f1_score, balanced_accuracy_score
@@ -101,6 +102,121 @@ def traducir_columnas_automatico(df):
         # Si falla la traducción, deja los nombres originales
         pass
     return df
+
+# === FUNCIONES DE LIMPIEZA DE DATOS ===
+
+def detectar_valores_nulos(df):
+    """Detecta y retorna información sobre valores nulos en el dataset."""
+    nulos_por_col = df.isnull().sum()
+    nulos_por_col = nulos_por_col[nulos_por_col > 0].sort_values(ascending=False)
+    porcentaje_nulos = (nulos_por_col / len(df) * 100).round(2)
+    return pd.DataFrame({
+        'Columna': nulos_por_col.index,
+        'Valores Nulos': nulos_por_col.values,
+        'Porcentaje (%)': porcentaje_nulos.values
+    })
+
+def detectar_outliers_iqr(df, columnas_numericas, multiplicador=1.5):
+    """Detecta outliers usando el método IQR (Rango Intercuartílico)."""
+    outliers_info = []
+    outliers_indices = set()
+    
+    for col in columnas_numericas:
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        limite_inferior = Q1 - multiplicador * IQR
+        limite_superior = Q3 + multiplicador * IQR
+        
+        mask_outliers = (df[col] < limite_inferior) | (df[col] > limite_superior)
+        n_outliers = mask_outliers.sum()
+        
+        if n_outliers > 0:
+            outliers_info.append({
+                'Columna': col,
+                'N° Outliers': n_outliers,
+                'Porcentaje (%)': round(n_outliers / len(df) * 100, 2),
+                'Límite Inferior': round(limite_inferior, 2),
+                'Límite Superior': round(limite_superior, 2)
+            })
+            outliers_indices.update(df[mask_outliers].index.tolist())
+    
+    return pd.DataFrame(outliers_info), list(outliers_indices)
+
+def detectar_outliers_zscore(df, columnas_numericas, umbral=3):
+    """Detecta outliers usando el método Z-Score."""
+    from scipy import stats
+    outliers_info = []
+    outliers_indices = set()
+    
+    for col in columnas_numericas:
+        z_scores = np.abs(stats.zscore(df[col].dropna()))
+        mask_outliers = z_scores > umbral
+        n_outliers = mask_outliers.sum()
+        
+        if n_outliers > 0:
+            outliers_info.append({
+                'Columna': col,
+                'N° Outliers': n_outliers,
+                'Porcentaje (%)': round(n_outliers / len(df) * 100, 2),
+                'Umbral Z-Score': umbral
+            })
+            indices_validos = df[col].dropna().index
+            outliers_indices.update(indices_validos[mask_outliers].tolist())
+    
+    return pd.DataFrame(outliers_info), list(outliers_indices)
+
+def limpiar_valores_nulos(df, metodo='media', columnas=None):
+    """Limpia valores nulos del dataset según el método especificado."""
+    df_limpio = df.copy()
+    
+    if columnas is None:
+        columnas = df.columns
+    
+    for col in columnas:
+        if col not in df_limpio.columns:
+            continue
+            
+        if df_limpio[col].isnull().sum() == 0:
+            continue
+        
+        if metodo == 'eliminar_filas':
+            df_limpio = df_limpio.dropna(subset=[col])
+        elif metodo == 'eliminar_columna':
+            df_limpio = df_limpio.drop(columns=[col])
+        elif pd.api.types.is_numeric_dtype(df_limpio[col]):
+            if metodo == 'media':
+                df_limpio[col].fillna(df_limpio[col].mean(), inplace=True)
+            elif metodo == 'mediana':
+                df_limpio[col].fillna(df_limpio[col].median(), inplace=True)
+            elif metodo == 'cero':
+                df_limpio[col].fillna(0, inplace=True)
+        else:  # Columna categórica
+            if metodo == 'moda':
+                moda = df_limpio[col].mode()
+                if len(moda) > 0:
+                    df_limpio[col].fillna(moda[0], inplace=True)
+            elif metodo == 'constante':
+                df_limpio[col].fillna('Desconocido', inplace=True)
+    
+    return df_limpio
+
+def limpiar_outliers(df, indices_outliers, metodo='eliminar'):
+    """Limpia outliers del dataset según el método especificado."""
+    df_limpio = df.copy()
+    
+    if metodo == 'eliminar':
+        df_limpio = df_limpio.drop(index=indices_outliers)
+        df_limpio = df_limpio.reset_index(drop=True)
+    elif metodo == 'winsorizar':
+        # Reemplazar outliers con valores en los percentiles 5 y 95
+        columnas_numericas = df_limpio.select_dtypes(include=[np.number]).columns
+        for col in columnas_numericas:
+            percentil_5 = df_limpio[col].quantile(0.05)
+            percentil_95 = df_limpio[col].quantile(0.95)
+            df_limpio[col] = df_limpio[col].clip(lower=percentil_5, upper=percentil_95)
+    
+    return df_limpio
 from modelos import (
     entrenar_lda,
     entrenar_qda, 
@@ -517,12 +633,75 @@ df = traducir_columnas_automatico(df)
 if _msg_carga:
     st.sidebar.success(_msg_carga)
 
+# === LIMPIEZA AUTOMÁTICA DE DATOS ===
+if df is not None:
+    filas_originales = len(df)
+    columnas_originales = len(df.columns)
+    
+    # 1. Eliminar columnas con más del 50% de valores nulos
+    umbral_nulos = 0.5
+    cols_con_muchos_nulos = [col for col in df.columns if df[col].isnull().sum() / len(df) > umbral_nulos]
+    if cols_con_muchos_nulos:
+        df = df.drop(columns=cols_con_muchos_nulos)
+        st.sidebar.info(f"🧹 Eliminadas {len(cols_con_muchos_nulos)} columnas con >50% valores nulos")
+    
+    # 2. Imputar valores nulos restantes
+    columnas_numericas = df.select_dtypes(include=[np.number]).columns.tolist()
+    columnas_categoricas = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    
+    # Imputar numéricas con la mediana
+    for col in columnas_numericas:
+        if df[col].isnull().sum() > 0:
+            df[col] = df[col].fillna(df[col].median())
+    
+    # Imputar categóricas con la moda
+    for col in columnas_categoricas:
+        if df[col].isnull().sum() > 0:
+            moda = df[col].mode()
+            if len(moda) > 0:
+                df[col] = df[col].fillna(moda[0])
+    
+    # 3. Eliminar filas con valores infinitos
+    if df.select_dtypes(include=[np.number]).apply(lambda x: np.isinf(x).any()).any():
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.dropna()
+        df = df.reset_index(drop=True)
+    
+    filas_final = len(df)
+    columnas_final = len(df.columns)
+    
+    if filas_originales != filas_final or columnas_originales != columnas_final:
+        st.sidebar.success(f"✅ Dataset limpio: {filas_originales}→{filas_final} filas, {columnas_originales}→{columnas_final} columnas")
+
 # Conversión automática de variables categóricas a numéricas
 if df is not None:
     cat_cols_auto = df.select_dtypes(include=["object", "category"]).columns.tolist()
     if cat_cols_auto:
-        df = pd.get_dummies(df, columns=cat_cols_auto, drop_first=True)
-        st.sidebar.info(f"Las variables categóricas {cat_cols_auto} han sido convertidas automáticamente a variables numéricas (one-hot encoding) para su análisis.")
+        # Filtrar columnas categóricas con demasiados valores únicos para evitar explosión de memoria
+        max_unique_for_dummies = 50  # Máximo de valores únicos para aplicar one-hot encoding
+        cat_cols_safe = []
+        cat_cols_omitidas = []
+        
+        for col in cat_cols_auto:
+            n_unique = df[col].nunique(dropna=False)
+            if n_unique <= max_unique_for_dummies:
+                cat_cols_safe.append(col)
+            else:
+                cat_cols_omitidas.append((col, n_unique))
+        
+        # Aplicar one-hot encoding solo a columnas seguras
+        if cat_cols_safe:
+            df = pd.get_dummies(df, columns=cat_cols_safe, drop_first=True)
+            st.sidebar.success(f"✅ {len(cat_cols_safe)} variables categóricas convertidas a numéricas: {', '.join(cat_cols_safe[:5])}{'...' if len(cat_cols_safe) > 5 else ''}")
+        
+        # Advertir sobre columnas omitidas
+        if cat_cols_omitidas:
+            st.sidebar.warning(f"⚠️ {len(cat_cols_omitidas)} columnas categóricas fueron omitidas porque tienen demasiados valores únicos (>{max_unique_for_dummies}):")
+            for col, n in cat_cols_omitidas[:5]:  # Mostrar solo las primeras 5
+                st.sidebar.caption(f"  • `{col}`: {n} valores únicos")
+            if len(cat_cols_omitidas) > 5:
+                st.sidebar.caption(f"  ... y {len(cat_cols_omitidas) - 5} más")
+            st.sidebar.info("💡 Considera eliminar estas columnas o convertirlas manualmente si son relevantes para tu análisis.")
 
     # Selección global de columna de clase y nombres descriptivos
     max_unique_target = 20
@@ -3872,20 +4051,45 @@ elif analisis == "Clustering Jerárquico" and df is not None:
     # Convertir categóricas si es necesario
     if convertir_categoricas and len(cat_cols) > 0:
         st.info(f"🔄 Convirtiendo {len(cat_cols)} variables categóricas...")
-        df_procesado = pd.get_dummies(df_procesado, columns=cat_cols, drop_first=True)
-        st.success(f"✅ Variables categóricas convertidas. Nuevas columnas: {df_procesado.shape[1] - df.shape[1] + len(cat_cols)}")
+        # Filtrar columnas con demasiados valores únicos para evitar errores de memoria
+        max_uniques = 50
+        cat_cols_safe = []
+        cat_cols_omitidas = []
+        for col in cat_cols:
+            n_unique = df_procesado[col].nunique(dropna=False)
+            if n_unique <= max_uniques:
+                cat_cols_safe.append(col)
+            else:
+                cat_cols_omitidas.append((col, n_unique))
+        
+        if cat_cols_safe:
+            df_procesado = pd.get_dummies(df_procesado, columns=cat_cols_safe, drop_first=True)
+            st.success(f"✅ {len(cat_cols_safe)} variables categóricas convertidas. Nuevas columnas: {df_procesado.shape[1] - df.shape[1] + len(cat_cols_safe)}")
+        
+        if cat_cols_omitidas:
+            st.warning(f"⚠️ Las siguientes columnas categóricas fueron omitidas porque tienen demasiados valores únicos (> {max_uniques}): " + ", ".join([f'{col} ({n} únicos)' for col, n in cat_cols_omitidas]))
     
     # Actualizar lista de columnas numéricas después de la conversión
     num_cols_actualizado = [c for c in df_procesado.columns if pd.api.types.is_numeric_dtype(df_procesado[c]) and c.strip().lower() not in nombres_clase]
     
+    # Limitar el número de columnas para evitar problemas de memoria
+    max_cols_jerarquico = 15
+    if len(num_cols_actualizado) > max_cols_jerarquico:
+        st.warning(f"⚠️ Se detectaron {len(num_cols_actualizado)} variables. Para clustering jerárquico se recomienda usar máximo {max_cols_jerarquico} variables.")
+    
     feature_cols = st.multiselect(
-        "Selecciona las columnas para clustering:",
+        "Selecciona las columnas para clustering (máximo 15 recomendado):",
         num_cols_actualizado,
         default=num_cols_actualizado[:min(10, len(num_cols_actualizado))],
-        key="features_hierarchical"
+        key="features_hierarchical",
+        help="Clustering jerárquico es muy costoso. Limita el número de variables para mejor rendimiento."
     )
 
     if feature_cols and len(feature_cols) >= 2:
+        # Advertencia si se seleccionaron demasiadas columnas
+        if len(feature_cols) > max_cols_jerarquico:
+            st.error(f"❌ Has seleccionado {len(feature_cols)} variables. Por favor, selecciona máximo {max_cols_jerarquico} para evitar problemas de rendimiento.")
+            st.stop()
         X = df_procesado[feature_cols].copy()
         
         # Manejo de valores nulos
@@ -4013,8 +4217,31 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         import scipy.cluster.hierarchy as sch
         import plotly.figure_factory as ff
 
+        # === VERIFICAR TAMAÑO DEL DATASET Y APLICAR MUESTREO SI ES NECESARIO ===
+        max_filas_jerarquico = 2000  # Límite práctico para clustering jerárquico (reducido para evitar bloqueos)
+        X_para_clustering = X_scaled.copy()
+        muestreo_aplicado = False
+        indices_muestra_originales = None
+        
+        if len(X_scaled) > max_filas_jerarquico:
+            st.warning(f"⚠️ El dataset tiene {len(X_scaled):,} filas. El clustering jerárquico es computacionalmente costoso.")
+            st.info(f"💡 Se aplicará muestreo aleatorio a {max_filas_jerarquico:,} filas para optimizar rendimiento.")
+            
+            # Muestreo aleatorio
+            from sklearn.utils import resample
+            indices_muestra = resample(
+                range(len(X_scaled)),
+                n_samples=max_filas_jerarquico,
+                replace=False,
+                random_state=42
+            )
+            indices_muestra_originales = indices_muestra.copy()
+            X_para_clustering = X_scaled.iloc[indices_muestra].reset_index(drop=True).copy()
+            muestreo_aplicado = True
+            st.success(f"✅ Muestreo aplicado: usando {len(X_para_clustering):,} de {len(X_scaled):,} filas")
+
         # Calcular matriz de enlaces con la métrica seleccionada
-        linkage_matrix = sch.linkage(X_scaled, method=metodo_enlace, metric=metrica_dist)
+        linkage_matrix = sch.linkage(X_para_clustering, method=metodo_enlace, metric=metrica_dist)
 
 
         # === Dendrograma enriquecido: colorear ramas según clúster y mostrar distancia de corte ===
@@ -4027,16 +4254,30 @@ elif analisis == "Clustering Jerárquico" and df is not None:
             if linkage_matrix.shape[0] >= n_clusters-1:
                 color_threshold = linkage_matrix[-(n_clusters-1), 2]
         # Crear dendrograma enriquecido
+        # Solo mostrar labels si hay pocas observaciones (<100) para evitar sobrecarga
+        mostrar_labels = len(X_para_clustering) < 100
         if orientacion_dendro == "vertical":
-            fig_dendro = ff.create_dendrogram(
-                X_scaled,
-                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
-                orientation='bottom',
-                labels=[f"Obs {i}" for i in range(len(X_scaled))],
-                color_threshold=color_threshold
-            )
+            if mostrar_labels:
+                fig_dendro = ff.create_dendrogram(
+                    X_para_clustering,
+                    linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
+                    orientation='bottom',
+                    labels=[f"Obs {i}" for i in range(len(X_para_clustering))],
+                    color_threshold=color_threshold
+                )
+            else:
+                # Sin labels individuales para datasets grandes
+                fig_dendro = ff.create_dendrogram(
+                    X_para_clustering,
+                    linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
+                    orientation='bottom',
+                    color_threshold=color_threshold
+                )
+            titulo_dendro = f"Dendrograma jerárquico ({metodo_enlace}, {metrica_dist})"
+            if muestreo_aplicado:
+                titulo_dendro += f" - Muestra de {len(X_para_clustering):,} filas"
             fig_dendro.update_layout(
-                title=f"Dendrograma jerárquico ({metodo_enlace}, {metrica_dist})",
+                title=titulo_dendro,
                 xaxis_title="Observaciones",
                 yaxis_title="Distancia",
                 height=500,
@@ -4049,24 +4290,36 @@ elif analisis == "Clustering Jerárquico" and df is not None:
             # Línea de corte
             if color_threshold is not None:
                 fig_dendro.add_shape(type="line",
-                    x0=-0.5, x1=len(X_scaled)-0.5,
+                    x0=-0.5, x1=len(X_para_clustering)-0.5,
                     y0=color_threshold, y1=color_threshold,
                     line=dict(color="#27ae60", width=2, dash="dash"),
                     xref="x", yref="y"
                 )
         else:
-            fig_dendro = ff.create_dendrogram(
-                X_scaled,
-                linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
-                orientation='left',
-                labels=[f"Obs {i}" for i in range(len(X_scaled))],
-                color_threshold=color_threshold
-            )
+            if mostrar_labels:
+                fig_dendro = ff.create_dendrogram(
+                    X_para_clustering,
+                    linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
+                    orientation='left',
+                    labels=[f"Obs {i}" for i in range(len(X_para_clustering))],
+                    color_threshold=color_threshold
+                )
+            else:
+                # Sin labels individuales para datasets grandes
+                fig_dendro = ff.create_dendrogram(
+                    X_para_clustering,
+                    linkagefun=lambda x: sch.linkage(x, method=metodo_enlace, metric=metrica_dist),
+                    orientation='left',
+                    color_threshold=color_threshold
+                )
+            titulo_dendro_h = f"Dendrograma jerárquico ({metodo_enlace}, {metrica_dist})"
+            if muestreo_aplicado:
+                titulo_dendro_h += f" - Muestra de {len(X_para_clustering):,} filas"
             fig_dendro.update_layout(
-                title=f"Dendrograma jerárquico ({metodo_enlace}, {metrica_dist})",
+                title=titulo_dendro_h,
                 xaxis_title="Distancia",
                 yaxis_title="Observaciones",
-                height=max(600, len(X_scaled) * 15),
+                height=max(600, len(X_para_clustering) * 15),
                 showlegend=False,
                 hovermode='closest',
                 plot_bgcolor=colores['plot_bg'],
@@ -4077,7 +4330,7 @@ elif analisis == "Clustering Jerárquico" and df is not None:
             if color_threshold is not None:
                 fig_dendro.add_shape(type="line",
                     x0=color_threshold, x1=color_threshold,
-                    y0=-0.5, y1=len(X_scaled)-0.5,
+                    y0=-0.5, y1=len(X_para_clustering)-0.5,
                     line=dict(color="#27ae60", width=2, dash="dash"),
                     xref="x", yref="y"
                 )
@@ -4466,7 +4719,12 @@ elif analisis == "Clustering Jerárquico" and df is not None:
 
         st.markdown("---")
         st.subheader("⚙️ Selección de número de clusters")
-        n_clusters = st.slider("Número de clusters a formar", min_value=2, max_value=min(10, len(X)), value=sugerencia_clusters if 'sugerencia_clusters' in locals() else 2)
+        
+        # Advertencia si se aplicó muestreo
+        if muestreo_aplicado:
+            st.warning(f"⚠️ **Nota importante:** El clustering se realizará sobre la muestra de {len(X_para_clustering):,} filas. Para análisis completo, considera reducir el tamaño del dataset o usar K-Means/DBSCAN que son más escalables.")
+        
+        n_clusters = st.slider("Número de clusters a formar", min_value=2, max_value=min(10, len(X_para_clustering)), value=sugerencia_clusters if 'sugerencia_clusters' in locals() else 2)
         from sklearn.cluster import AgglomerativeClustering
         # AgglomerativeClustering solo permite affinity/metric diferente de 'euclidean' si linkage != 'ward'
         if metodo_enlace == "ward":
@@ -4474,10 +4732,10 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         else:
             agg = AgglomerativeClustering(n_clusters=n_clusters, linkage=metodo_enlace, metric=metrica_dist)
         try:
-            clusters = agg.fit_predict(X_scaled)
+            clusters = agg.fit_predict(X_para_clustering)
         except Exception as e:
             st.error(f"Error al formar clusters: {e}. Verifica que la métrica sea compatible con el método de enlace.")
-            clusters = np.zeros(len(X_scaled), dtype=int)
+            clusters = np.zeros(len(X_para_clustering), dtype=int)
 
         st.success(f"**Clusters formados:** {n_clusters} (métrica: {metrica_dist})")
         
@@ -4487,13 +4745,18 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         # Usar datos originales (antes de escalado/PCA) para interpretabilidad
         if aplicar_pca_prep and pca_model is not None:
             # Si se aplicó PCA, mostrar los componentes principales
-            df_clusters = pd.DataFrame(X_scaled, columns=columnas_finales)
+            df_clusters = pd.DataFrame(X_para_clustering, columns=columnas_finales)
             df_clusters["Cluster"] = clusters
             medias = df_clusters.groupby("Cluster").mean()
             st.caption("**Nota:** Las variables mostradas son componentes principales (PC). Para ver las variables originales, desactiva PCA.")
         else:
             # Usar variables originales (sin escalar) para mejor interpretación
-            df_clusters = pd.DataFrame(X_original, columns=feature_cols)
+            # Si se aplicó muestreo, usar solo las filas de la muestra
+            if muestreo_aplicado and indices_muestra_originales is not None:
+                X_original_muestra = X_original.iloc[indices_muestra_originales].reset_index(drop=True)
+                df_clusters = pd.DataFrame(X_original_muestra, columns=feature_cols)
+            else:
+                df_clusters = pd.DataFrame(X_original, columns=feature_cols)
             df_clusters["Cluster"] = clusters
             medias = df_clusters.groupby("Cluster").mean()
         
@@ -4512,9 +4775,9 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
         # Validación interna
         if n_clusters > 1 and len(set(clusters)) > 1:
-            sil_score = silhouette_score(X_scaled, clusters)
-            db_score = davies_bouldin_score(X_scaled, clusters)
-            ch_score = calinski_harabasz_score(X_scaled, clusters)
+            sil_score = silhouette_score(X_para_clustering, clusters)
+            db_score = davies_bouldin_score(X_para_clustering, clusters)
+            ch_score = calinski_harabasz_score(X_para_clustering, clusters)
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Silhouette", f"{sil_score:.3f}", help="Rango: [-1, 1]. Más alto = mejor separación de clústeres.")
@@ -4528,7 +4791,11 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         # Validación externa si hay etiquetas verdaderas
         target_col = st.session_state.get("target_col_global")
         if target_col and target_col in df.columns:
-            y_true = df[target_col].values
+            # Obtener solo las etiquetas de la muestra si se aplicó muestreo
+            if muestreo_aplicado and indices_muestra_originales is not None:
+                y_true = df[target_col].iloc[indices_muestra_originales].reset_index(drop=True).values
+            else:
+                y_true = df[target_col].values
             from sklearn.metrics import adjusted_rand_score, adjusted_mutual_info_score
             st.markdown("---")
             st.subheader("🔍 Validación externa (si hay etiquetas)")
@@ -4552,8 +4819,8 @@ elif analisis == "Clustering Jerárquico" and df is not None:
             '#E74C3C', '#2980B9', '#F39C12', '#8E44AD', '#FFD700', '#D35400', '#34495E', '#1ABC9C', '#C0392B', '#7F8C8D', '#00FF00', '#FF00FF', '#FF1493', '#00CED1', '#FF4500'
         ]
         
-        # Datos para visualización (usar datos escalados para consistencia con clustering)
-        datos_viz = pd.DataFrame(X_scaled, columns=columnas_finales)
+        # Datos para visualización (usar datos muestreados para consistencia con clustering)
+        datos_viz = pd.DataFrame(X_para_clustering, columns=columnas_finales)
         
         if tipo_viz == "3D (3 variables)" and len(columnas_finales) >= 3:
             st.write("**Elige manualmente las 3 variables para visualizar:**")
@@ -4615,7 +4882,7 @@ elif analisis == "Clustering Jerárquico" and df is not None:
         st.subheader("📈 Métrica de calidad del clustering (Silhouette)")
         from sklearn.metrics import silhouette_score
         if n_clusters > 1:
-            sil_score = silhouette_score(X_scaled, clusters)
+            sil_score = silhouette_score(X_para_clustering, clusters)
             st.metric(
                 "Silhouette", 
                 f"{sil_score:.3f}",

@@ -30,13 +30,36 @@ def cargar_dataset(archivo_subido, opcion_archivo, carpeta_datos):
     """
     Carga un DataFrame desde un archivo subido o desde la carpeta de datos.
     """
+    def intentar_leer_csv(f, codificaciones):
+        for cod in codificaciones:
+            try:
+                if hasattr(f, 'seek'):
+                    f.seek(0)
+                return pd.read_csv(f, encoding=cod), cod, None
+            except UnicodeDecodeError as e:
+                continue
+            except Exception as e:
+                return None, None, str(e)
+        return None, None, 'No se pudo decodificar el archivo con las codificaciones probadas.'
+
+    codificaciones = ['utf-8', 'latin1', 'cp1252']
     if archivo_subido is not None:
-        df = pd.read_csv(archivo_subido)
-        return df, 'Archivo subido cargado correctamente.'
+        df, cod, error = intentar_leer_csv(archivo_subido, codificaciones)
+        if df is not None:
+            return df, f'Archivo subido cargado correctamente (codificación: {cod}).'
+        else:
+            return None, f'Error al cargar archivo subido: {error}'
     elif opcion_archivo:
         ruta = os.path.join(carpeta_datos, opcion_archivo)
-        df = pd.read_csv(ruta)
-        return df, f"Archivo '{opcion_archivo}' cargado correctamente."
+        try:
+            with open(ruta, 'rb') as f:
+                df, cod, error = intentar_leer_csv(f, codificaciones)
+            if df is not None:
+                return df, f"Archivo '{opcion_archivo}' cargado correctamente (codificación: {cod})."
+            else:
+                return None, f"Error al cargar archivo '{opcion_archivo}': {error}"
+        except Exception as e:
+            return None, f"Error al abrir archivo '{opcion_archivo}': {str(e)}"
     return None, None
 
 def seleccionar_columnas(df, max_unique_target=20):
